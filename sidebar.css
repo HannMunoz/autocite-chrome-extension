@@ -1,0 +1,12 @@
+/*
+  AutoCite sidebar styles are organized in /css.
+  This file is kept for compatibility with older references.
+*/
+
+.privacy-note {
+  color: #52616b;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 14px 4px 4px;
+  text-align: center;
+}

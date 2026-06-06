@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AutoCite</title>
+    <link rel="stylesheet" href="css/base.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <link rel="stylesheet" href="css/buttons.css" />
+    <link rel="stylesheet" href="css/tabs.css" />
+    <link rel="stylesheet" href="css/animations.css" />
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Study Helper</p>
+          <h1>AutoCite</h1>
+        </div>
+        <div class="window-actions">
+          <button class="icon-button" id="minimizeSidebarButton" type="button" title="Minimize AutoCite" aria-label="Minimize AutoCite">−</button>
+          <button class="icon-button" id="closeSidebarButton" type="button" title="Close AutoCite fully" aria-label="Close AutoCite">×</button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="AutoCite sections">
+        <button class="tab-button is-active" type="button" data-tab="cite">Cite</button>
+        <button class="tab-button" type="button" data-tab="history">History</button>
+        <button class="tab-button" type="button" data-tab="export">Export</button>
+      </nav>
+
+      <section class="tab-panel is-active" id="citePanel">
+        <section class="panel">
+          <div class="panel-header--row">
+            <div class="panel-header-text">
+              <h2>Copied Text</h2>
+              <p class="panel-description">Highlight and copy text from any webpage to start a citation.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="small-button soft-button" id="clearCopiedTextButton" type="button">Clear Text</button>
+              <button class="small-button secondary-button" id="copyCopiedTextButton" type="button">Copy</button>
+            </div>
+          </div>
+          <textarea id="copiedText" placeholder="Your copied text will appear here…"></textarea>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Source Details</h2>
+            <p class="panel-description">Review and edit the detected source information.</p>
+          </div>
+          <div class="field-grid">
+            <label for="sourceType">Source Type</label>
+            <select id="sourceType">
+              <option value="website">Website</option>
+              <option value="pdf">PDF</option>
+              <option value="book">Book</option>
+              <option value="journal">Journal Article</option>
+            </select>
+
+            <div class="source-field">
+              <label id="sourceTitleLabel" for="sourceTitle">Page Title</label>
+              <input id="sourceTitle" type="text" placeholder="Page title" />
+            </div>
+
+            <div class="contributors-section">
+              <div class="section-heading contributors-heading">
+                <h3>Contributors</h3>
+                <button class="small-button secondary-button" id="addContributorButton" type="button">Add contributor</button>
+              </div>
+              <div id="contributorsList" class="contributors-list"></div>
+            </div>
+
+            <div class="source-field" data-source-types="website">
+              <label for="sourceWebsite">Website Name</label>
+              <input id="sourceWebsite" type="text" placeholder="Website name" />
+            </div>
+
+            <div class="source-field" data-source-types="website pdf book journal">
+              <label id="sourcePublisherLabel" for="sourcePublisher">Publisher or Organization</label>
+              <input id="sourcePublisher" type="text" placeholder="Publisher or organization" />
+            </div>
+
+            <div class="source-field" data-source-types="journal">
+              <label for="journalName">Journal Name</label>
+              <input id="journalName" type="text" placeholder="Journal name" />
+            </div>
+
+            <div class="source-field source-detail-row" data-source-types="journal">
+              <label>Volume<input id="sourceVolume" type="text" placeholder="12" /></label>
+              <label>Issue<input id="sourceIssue" type="text" placeholder="3" /></label>
+            </div>
+
+            <div class="source-field" data-source-types="journal">
+              <label for="sourcePages">Page Range</label>
+              <input id="sourcePages" type="text" placeholder="123-145" />
+            </div>
+
+            <div class="source-field">
+              <label id="publishedDateLabel" for="publishedDate">Published Date</label>
+              <input id="publishedDate" type="text" placeholder="YYYY-MM-DD, or leave blank" />
+            </div>
+
+            <div class="source-field">
+              <label id="sourceUrlLabel" for="sourceUrl">URL</label>
+              <input id="sourceUrl" type="url" placeholder="https://example.com or DOI" />
+            </div>
+
+            <div class="source-field" data-source-types="website pdf">
+              <label for="accessDate">Access Date</label>
+              <input id="accessDate" type="date" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Citation</h2>
+            <p class="panel-description">Choose a style and copy or save your formatted citation.</p>
+          </div>
+
+          <div class="citation-style-row">
+            <label for="citationStyle">Citation Style</label>
+            <select id="citationStyle">
+              <option value="apa">APA 7th edition</option>
+              <option value="mla">MLA 9th edition</option>
+              <option value="chicago">Chicago Author-Date style</option>
+            </select>
+          </div>
+
+          <button class="primary-button" id="generateButton" type="button">Generate Citation</button>
+          <div class="validation-warnings" id="validationWarnings" aria-live="polite"></div>
+
+          <label class="checkbox-label" for="manualOverride">
+            <input id="manualOverride" type="checkbox" />
+            Manual override
+          </label>
+
+          <div class="citation-outputs">
+            <label for="fullCitation">Full Citation</label>
+            <textarea id="fullCitation" placeholder="Your full citation will appear here…"></textarea>
+
+            <label for="inTextCitation">In-text Citation</label>
+            <input id="inTextCitation" type="text" placeholder="Your in-text citation will appear here…" />
+          </div>
+
+          <div class="button-grid">
+            <button class="secondary-button" id="copyFullButton" type="button">Copy Full Citation</button>
+            <button class="secondary-button" id="copyInTextButton" type="button">Copy Text + In-text Citation</button>
+            <button class="primary-button" id="saveCitationButton" type="button">Save Citation</button>
+            <button class="soft-button" id="clearCitationButton" type="button">Clear</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="historyPanel">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Saved Citations</h2>
+            <p class="panel-description">Browse, search, and manage your saved citations.</p>
+          </div>
+
+          <label for="historySearch">Search Citations</label>
+          <input id="historySearch" type="search" placeholder="Search title, author, URL, or citation" />
+
+          <label for="historySort">Sort Citations</label>
+          <select id="historySort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="az">A to Z</option>
+            <option value="za">Z to A</option>
+          </select>
+
+          <p class="selection-status" id="selectionStatus" aria-live="polite"></p>
+          <div class="button-grid history-actions is-hidden" id="historyActions">
+            <button class="secondary-button" id="editSelectedButton" type="button">Edit Selected</button>
+            <button class="secondary-button" id="copySelectedButton" type="button">Copy Selected</button>
+            <button class="danger-button" id="deleteSelectedButton" type="button">Delete Selected</button>
+          </div>
+
+          <ul id="citationHistory" class="history-list">
+            <li class="empty-history">No saved citations yet.</li>
+          </ul>
+
+          <button class="danger-button clear-history-button" id="clearHistoryButton" type="button">Clear History</button>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="exportPanel">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Bibliography Preview</h2>
+            <p class="panel-description">Your saved citations, sorted alphabetically and ready to export.</p>
+          </div>
+
+          <p class="citation-count" id="bibliographyCount">Total Citations: 0</p>
+          <textarea id="bibliographyPreview" readonly aria-readonly="true" placeholder="Saved citations will appear here in alphabetical order…"></textarea>
+
+          <div class="button-grid">
+            <button class="secondary-button" id="copyBibliographyButton" type="button">Copy Bibliography</button>
+            <button class="secondary-button" id="exportTxtButton" type="button">Export TXT</button>
+            <button class="primary-button" id="exportDocxButton" type="button">Export DOCX</button>
+          </div>
+        </section>
+      </section>
+
+      <p class="privacy-note">Your copied text and citations stay on your device and are not uploaded to any server.</p>
+      <p class="toast-message" id="copyMessage" aria-live="polite"></p>
+    </main>
+
+    <script src="js/state.js"></script>
+    <script src="js/security.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/contributors.js"></script>
+    <script src="js/apaFormatter.js"></script>
+    <script src="js/mlaFormatter.js"></script>
+    <script src="js/chicagoFormatter.js"></script>
+    <script src="js/citationGenerator.js"></script>
+    <script src="js/metadataExtractor.js"></script>
+    <script src="js/history.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/copyActions.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+    <script src="sidebar.js"></script>
+  </body>
+</html>
