@@ -1,15 +1,44 @@
 // AutoCite background script
 // This file runs quietly in the background and controls extension-wide behavior.
 
-// When the extension is installed, tell Chrome which page should appear in the side panel.
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
+function enableActionClickToOpenPanel() {
+  if (!chrome.sidePanel || !chrome.sidePanel.setPanelBehavior) {
+    return;
+  }
+
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+    console.error("[AutoCite] Could not enable toolbar side panel behavior.", error);
+  });
+}
+
+// Apply this on every service-worker start as well as install/update.
+enableActionClickToOpenPanel();
+chrome.runtime.onInstalled.addListener(enableActionClickToOpenPanel);
+
+async function openAutoCiteSidebar(tab) {
+  console.log("Opening sidebar");
+
+  if (!tab || typeof tab.id !== "number" || !chrome.sidePanel || !chrome.sidePanel.open) {
+    console.error("[AutoCite] Side Panel API is unavailable for this tab.");
+    return false;
+  }
+
+  try {
+    await chrome.sidePanel.open({ tabId: tab.id });
+    await chrome.storage.local.set({ autociteFullyClosed: false });
+    console.log("Sidebar opened successfully");
+    return true;
+  } catch (error) {
+    console.error("[AutoCite] Failed to open sidebar.", error);
+    return false;
+  }
+}
 
 // If the user clicks the AutoCite extension icon, Chrome will open the side panel.
-// The openPanelOnActionClick setting above handles that for us in Manifest V3.
 chrome.action.onClicked.addListener((tab) => {
-  if (tab && tab.id) {
+  openAutoCiteSidebar(tab);
+
+  if (tab && typeof tab.id === "number") {
     chrome.tabs.sendMessage(tab.id, { type: "SHOW_AUTOCITE_BUTTON" });
   }
 });
@@ -57,20 +86,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  const tabId = sender.tab && sender.tab.id;
-
-  if (!tabId || !chrome.sidePanel || !chrome.sidePanel.open) {
-    sendResponse({ opened: false });
-    return;
-  }
-
-  chrome.sidePanel.open({ tabId })
-    .then(() => {
-      sendResponse({ opened: true });
-    })
-    .catch(() => {
-      sendResponse({ opened: false });
-    });
+  openAutoCiteSidebar(sender.tab).then((opened) => {
+    sendResponse({ opened });
+  });
 
   return true;
 });

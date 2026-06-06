@@ -477,6 +477,34 @@ function saveCopiedSource(selectedText) {
   });
 }
 
+function openAutoCiteSidebar() {
+  console.log("Cite button clicked");
+  console.log("Opening sidebar");
+
+  if (!canUseChromeRuntime()) {
+    console.error("[AutoCite] Cannot open sidebar because the extension context is unavailable.");
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: "OPEN_AUTOCITE_SIDEBAR" }, (response) => {
+    try {
+      if (chrome.runtime.lastError) {
+        console.error("[AutoCite] Sidebar open request failed.", chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (!response || !response.opened) {
+        console.error("[AutoCite] Sidebar did not open.");
+        return;
+      }
+
+      console.log("Sidebar opened successfully");
+    } catch (error) {
+      extensionContextInvalid = true;
+    }
+  });
+}
+
 function createFloatingButton() {
   if (document.getElementById(AUTOCITE_BUTTON_ID)) {
     return;
@@ -527,9 +555,7 @@ function createFloatingButton() {
     button.style.transform = "translateY(-1px)";
   });
 
-  button.addEventListener("click", () => {
-    sendMessageToSidebar({ type: "OPEN_AUTOCITE_SIDEBAR" });
-  });
+  button.addEventListener("click", openAutoCiteSidebar);
 
   document.documentElement.appendChild(button);
 }
@@ -596,4 +622,8 @@ document.addEventListener("copy", (event) => {
   }
 });
 
-createFloatingButton();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", createFloatingButton, { once: true });
+} else {
+  createFloatingButton();
+}
