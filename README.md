@@ -50,6 +50,6 @@ This project is currently for testing and educational demonstration.
 
 ## Copyright
 
-Copyright © 2026 CyberTivez. All rights reserved.
+Copyright © 2026 NovaTivez. All rights reserved.
 
 This project is shared for viewing, testing, and educational demonstration only. You may not copy, modify, redistribute, or use this code in another project without permission.
