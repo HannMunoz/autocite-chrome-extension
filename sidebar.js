@@ -12,6 +12,10 @@ const ExportTools = window.AutoCiteExport;
 const HistoryTools = window.AutoCiteHistory;
 const Metadata = window.AutoCiteMetadata;
 const UI = window.AutoCiteUI;
+const SIDEBAR_STATE_KEY = "sidebarState";
+const SIDEBAR_STATE_OPEN = "open";
+const SIDEBAR_STATE_MINIMIZED = "minimized";
+const SIDEBAR_STATE_CLOSED = "closed";
 
 const requiredModules = {
   State,
@@ -763,17 +767,17 @@ function exportDocx() {
 }
 
 function minimizeSidebar() {
-  Storage.storageSet({ autociteFullyClosed: false });
-  Metadata.sendMessageToActiveTab({ type: "SHOW_AUTOCITE_BUTTON" });
-  UI.showMessage("Minimized", "info");
-  window.close();
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_MINIMIZED }, () => {
+    UI.showMessage("Minimized", "info");
+    window.close();
+  });
 }
 
 function closeSidebarFully() {
-  Storage.storageSet({ autociteFullyClosed: true });
-  Metadata.sendMessageToActiveTab({ type: "HIDE_AUTOCITE_BUTTON" });
-  UI.showMessage("Closed", "info");
-  window.close();
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED }, () => {
+    UI.showMessage("Closed", "info");
+    window.close();
+  });
 }
 
 function listen(target, eventName, handler) {
@@ -889,8 +893,7 @@ function startAutoCite() {
   updateSourceTypeFields();
   Contributors.setContributors(elements.contributorsList, [Contributors.createEmptyContributor()], regenerateFromContributorEdit);
   setupEventListeners();
-  Storage.storageSet({ autociteFullyClosed: false });
-  Metadata.sendMessageToActiveTab({ type: "SHOW_AUTOCITE_BUTTON" });
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_OPEN });
   loadPageDetails();
   reloadCitationHistory();
 }

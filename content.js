@@ -2,6 +2,8 @@ let extensionContextInvalid = false;
 let latestSelectedText = "";
 
 const AUTOCITE_BUTTON_ID = "autocite-floating-button";
+const SIDEBAR_STATE_KEY = "sidebarState";
+const SIDEBAR_STATE_CLOSED = "closed";
 const DEBUG_AUTOCITE = true;
 
 function debugAuthorDetection(method, value) {
@@ -510,10 +512,6 @@ function createFloatingButton() {
     return;
   }
 
-  if (localStorage.getItem("autociteButtonHidden") === "true") {
-    return;
-  }
-
   const button = document.createElement("button");
   button.id = AUTOCITE_BUTTON_ID;
   button.type = "button";
@@ -561,16 +559,43 @@ function createFloatingButton() {
 }
 
 function showFloatingButton() {
-  localStorage.removeItem("autociteButtonHidden");
   createFloatingButton();
 }
 
 function hideFloatingButton() {
-  localStorage.setItem("autociteButtonHidden", "true");
   const button = document.getElementById(AUTOCITE_BUTTON_ID);
 
   if (button) {
     button.remove();
+  }
+}
+
+function applySidebarState(sidebarState) {
+  if (sidebarState === SIDEBAR_STATE_CLOSED) {
+    hideFloatingButton();
+    return;
+  }
+
+  showFloatingButton();
+}
+
+function loadSidebarState() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    showFloatingButton();
+    return;
+  }
+
+  try {
+    chrome.storage.local.get([SIDEBAR_STATE_KEY], (result) => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        showFloatingButton();
+        return;
+      }
+
+      applySidebarState(result[SIDEBAR_STATE_KEY]);
+    });
+  } catch (error) {
+    showFloatingButton();
   }
 }
 
@@ -600,6 +625,14 @@ try {
       }
     });
   }
+
+  if (!extensionContextInvalid && typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === "local" && changes[SIDEBAR_STATE_KEY]) {
+        applySidebarState(changes[SIDEBAR_STATE_KEY].newValue);
+      }
+    });
+  }
 } catch (error) {
   extensionContextInvalid = true;
 }
@@ -623,7 +656,7 @@ document.addEventListener("copy", (event) => {
 });
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", createFloatingButton, { once: true });
+  document.addEventListener("DOMContentLoaded", loadSidebarState, { once: true });
 } else {
-  createFloatingButton();
+  loadSidebarState();
 }
