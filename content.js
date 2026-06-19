@@ -12,8 +12,8 @@ const AUTOCITE_LEGACY_ELEMENT_IDS = [
   "autocite-sidebar-container",
   "autocite-overlay"
 ];
-const SIDEBAR_STATE_KEY = "sidebarState";
 const SIDEBAR_STATE_CLOSED = "closed";
+const SIDEBAR_STATE_DISMISSED = "dismissed";
 const DEBUG_AUTOCITE = false;
 
 function debugLog() {}
@@ -613,6 +613,12 @@ function hideFloatingButton() {
 }
 
 function applySidebarState(sidebarState) {
+  if (sidebarState === SIDEBAR_STATE_DISMISSED) {
+    autociteCaptureEnabled = false;
+    hideFloatingButton();
+    return;
+  }
+
   if (sidebarState === SIDEBAR_STATE_CLOSED) {
     autociteCaptureEnabled = false;
     showFloatingButton();
@@ -624,23 +630,7 @@ function applySidebarState(sidebarState) {
 }
 
 function loadSidebarState() {
-  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
-    invalidateExtensionContext();
-    return;
-  }
-
-  try {
-    chrome.storage.local.get([SIDEBAR_STATE_KEY], (result) => {
-      if (chrome.runtime && chrome.runtime.lastError) {
-        invalidateExtensionContext();
-        return;
-      }
-
-      applySidebarState(result[SIDEBAR_STATE_KEY]);
-    });
-  } catch (error) {
-    invalidateExtensionContext();
-  }
+  applySidebarState(SIDEBAR_STATE_CLOSED);
 }
 
 function startExtensionContextCheck() {
@@ -669,6 +659,11 @@ try {
         return;
       }
 
+      if (message.type === "AUTOCITE_SET_STATE") {
+        applySidebarState(message.sidebarState);
+        return;
+      }
+
       if (message.type === "SHOW_AUTOCITE_BUTTON") {
         showFloatingButton();
         return;
@@ -689,14 +684,6 @@ try {
           sourceDetails: getSourceDetails(),
           selectedText: window.getSelection().toString() || latestSelectedText
         });
-      }
-    });
-  }
-
-  if (!extensionContextInvalid && typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName === "local" && changes[SIDEBAR_STATE_KEY]) {
-        applySidebarState(changes[SIDEBAR_STATE_KEY].newValue);
       }
     });
   }

@@ -16,6 +16,9 @@ const SIDEBAR_STATE_KEY = "sidebarState";
 const SIDEBAR_STATE_OPEN = "open";
 const SIDEBAR_STATE_MINIMIZED = "minimized";
 const SIDEBAR_STATE_CLOSED = "closed";
+const SIDEBAR_STATE_DISMISSED = "dismissed";
+let sidebarUnloadState = SIDEBAR_STATE_CLOSED;
+let sidebarTabId = null;
 
 const requiredModules = {
   State,
@@ -766,22 +769,60 @@ function exportDocx() {
   UI.showMessage("DOCX exported!", "success");
 }
 
+function hideSidebarDocument() {
+  document.documentElement.style.display = "none";
+}
+
+function closeSidebarWindow() {
+  hideSidebarDocument();
+  window.close();
+}
+
 function minimizeSidebar() {
-  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_MINIMIZED }, () => {
-    UI.showMessage("Minimized", "info");
-    window.close();
-  });
+  sidebarUnloadState = SIDEBAR_STATE_MINIMIZED;
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_MINIMIZED }, closeSidebarWindow);
 }
 
 function closeSidebarFully() {
-  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED }, () => {
-    UI.showMessage("Closed", "info");
-    window.close();
-  });
+  sidebarUnloadState = SIDEBAR_STATE_DISMISSED;
+  hideSidebarDocument();
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_DISMISSED });
+
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    chrome.runtime.sendMessage({ type: "CLOSE_AUTOCITE_SIDEBAR", dismissed: true, tabId: sidebarTabId }, () => {
+      const ignoredError = chrome.runtime.lastError;
+      closeSidebarWindow();
+    });
+    return;
+  }
+
+  closeSidebarWindow();
 }
 
 function markSidebarClosed() {
-  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: sidebarUnloadState });
+
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    chrome.runtime.sendMessage({
+      type: "AUTOCITE_SIDEBAR_STATE_CHANGED",
+      sidebarState: sidebarUnloadState,
+      tabId: sidebarTabId
+    }, () => {
+      const ignoredError = chrome.runtime.lastError;
+    });
+  }
+}
+
+function rememberSidebarTab() {
+  if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.query) {
+    return;
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, ([activeTab]) => {
+    if (activeTab && typeof activeTab.id === "number") {
+      sidebarTabId = activeTab.id;
+    }
+  });
 }
 
 function listen(target, eventName, handler) {
@@ -868,7 +909,7 @@ function setupEventListeners() {
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message) => {
       if (message.type === "AUTOCITE_CLOSE_SIDEBAR") {
-        window.close();
+        closeSidebarWindow();
         return;
       }
 
@@ -898,10 +939,12 @@ function startAutoCite() {
     return;
   }
 
+  rememberSidebarTab();
   elements.accessDate.value = getTodayDate();
   updateSourceTypeFields();
   Contributors.setContributors(elements.contributorsList, [Contributors.createEmptyContributor()], regenerateFromContributorEdit);
   setupEventListeners();
+  sidebarUnloadState = SIDEBAR_STATE_CLOSED;
   Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_OPEN });
   loadPageDetails();
   reloadCitationHistory();

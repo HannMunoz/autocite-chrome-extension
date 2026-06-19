@@ -4,7 +4,9 @@
 const SIDEBAR_STATE_KEY = "sidebarState";
 const SIDEBAR_STATE_OPEN = "open";
 const SIDEBAR_STATE_CLOSED = "closed";
-const VALID_SIDEBAR_STATES = new Set(["open", "minimized", "closed"]);
+const SIDEBAR_STATE_DISMISSED = "dismissed";
+const VALID_SIDEBAR_STATES = new Set(["open", "minimized", "closed", "dismissed"]);
+const tabSidebarStates = new Map();
 const MAX_TEXT_LENGTH = 100000;
 const MAX_FIELD_LENGTH = 2000;
 const SENSITIVE_QUERY_PARAMETERS = [
@@ -157,6 +159,53 @@ async function injectContentScript(tab) {
   }
 }
 
+function getTabSidebarState(tabId) {
+  return tabSidebarStates.get(tabId) || SIDEBAR_STATE_CLOSED;
+}
+
+function sendStateToTab(tabId, sidebarState) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+
+  chrome.tabs.sendMessage(tabId, {
+    type: "AUTOCITE_SET_STATE",
+    sidebarState
+  }, () => {
+    const ignoredError = chrome.runtime.lastError;
+  });
+}
+
+async function setTabSidebarState(tabId, sidebarState) {
+  if (typeof tabId === "number") {
+    tabSidebarStates.set(tabId, sidebarState);
+    sendStateToTab(tabId, sidebarState);
+  }
+
+  await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: sidebarState });
+}
+
+async function getActiveTab() {
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return activeTab || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function getMessageTab(message, sender) {
+  if (message && typeof message.tabId === "number") {
+    return { id: message.tabId };
+  }
+
+  if (sender && sender.tab) {
+    return sender.tab;
+  }
+
+  return getActiveTab();
+}
+
 async function openAutoCiteSidebar(tab) {
   if (!tab || typeof tab.id !== "number" || !chrome.sidePanel || !chrome.sidePanel.open) {
     console.error("[AutoCite] Side Panel API is unavailable for this tab.");
@@ -165,8 +214,8 @@ async function openAutoCiteSidebar(tab) {
 
   try {
     await chrome.sidePanel.open({ tabId: tab.id });
-    await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_OPEN });
     await injectContentScript(tab);
+    await setTabSidebarState(tab.id, SIDEBAR_STATE_OPEN);
     return true;
   } catch (error) {
     console.error("[AutoCite] Failed to open sidebar.", error);
@@ -174,9 +223,11 @@ async function openAutoCiteSidebar(tab) {
   }
 }
 
-async function closeAutoCiteSidebar() {
+async function closeAutoCiteSidebar(tab, { dismissed = false } = {}) {
   try {
-    await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
+    const sidebarState = dismissed ? SIDEBAR_STATE_DISMISSED : SIDEBAR_STATE_CLOSED;
+
+    await setTabSidebarState(tab && tab.id, sidebarState);
     chrome.runtime.sendMessage({ type: "AUTOCITE_CLOSE_SIDEBAR" }, () => {
       const ignoredError = chrome.runtime.lastError;
     });
@@ -188,18 +239,15 @@ async function closeAutoCiteSidebar() {
 }
 
 async function toggleAutoCiteSidebar(tab) {
-  try {
-    const result = await chrome.storage.local.get([SIDEBAR_STATE_KEY]);
-
-    if (result[SIDEBAR_STATE_KEY] === SIDEBAR_STATE_OPEN) {
-      return closeAutoCiteSidebar();
-    }
-
-    return openAutoCiteSidebar(tab);
-  } catch (error) {
-    console.error("[AutoCite] Failed to toggle sidebar.", error);
+  if (!tab || typeof tab.id !== "number") {
     return false;
   }
+
+  if (getTabSidebarState(tab.id) === SIDEBAR_STATE_OPEN) {
+    return closeAutoCiteSidebar(tab);
+  }
+
+  return openAutoCiteSidebar(tab);
 }
 
 function isValidCopiedSource(value) {
@@ -217,6 +265,20 @@ initializeSidebarState();
 chrome.action.onClicked.addListener((tab) => {
   toggleAutoCiteSidebar(tab);
 });
+
+if (chrome.tabs && chrome.tabs.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    tabSidebarStates.delete(tabId);
+  });
+}
+
+if (chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === "loading" && getTabSidebarState(tabId) === SIDEBAR_STATE_OPEN) {
+      tabSidebarStates.set(tabId, SIDEBAR_STATE_CLOSED);
+    }
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") {
@@ -247,6 +309,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
 
     return;
+  }
+
+  if (message.type === "CLOSE_AUTOCITE_SIDEBAR") {
+    const closeCurrentSidebar = async () => {
+      const tab = await getMessageTab(message, sender);
+      return closeAutoCiteSidebar(tab, { dismissed: message.dismissed === true });
+    };
+
+    closeCurrentSidebar().then((closed) => {
+      sendResponse({ closed });
+    });
+
+    return true;
+  }
+
+  if (message.type === "AUTOCITE_SIDEBAR_STATE_CHANGED") {
+    const updateCurrentSidebar = async () => {
+      const tab = await getMessageTab(message, sender);
+      const sidebarState = VALID_SIDEBAR_STATES.has(message.sidebarState) ? message.sidebarState : SIDEBAR_STATE_CLOSED;
+      await setTabSidebarState(tab && tab.id, sidebarState);
+      return true;
+    };
+
+    updateCurrentSidebar().then((updated) => {
+      sendResponse({ updated });
+    });
+
+    return true;
   }
 
   if (message.type !== "TOGGLE_AUTOCITE_SIDEBAR" && message.type !== "OPEN_AUTOCITE_SIDEBAR") {
