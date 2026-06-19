@@ -3,6 +3,24 @@
 
 const MAX_TEXT_LENGTH = 100000;
 const MAX_FIELD_LENGTH = 2000;
+const SENSITIVE_QUERY_PARAMETERS = [
+  "access_token",
+  "auth",
+  "auth_token",
+  "code",
+  "id_token",
+  "jwt",
+  "key",
+  "login_token",
+  "password",
+  "refresh_token",
+  "secret",
+  "session",
+  "sessionid",
+  "sid",
+  "signature",
+  "token"
+];
 const TRACKING_PARAMETERS = ["fbclid", "gclid", "dclid", "msclkid"];
 
 function sanitizeText(value, maxLength = MAX_FIELD_LENGTH) {
@@ -41,8 +59,14 @@ function sanitizeUrl(value) {
 
     parsedUrl.username = "";
     parsedUrl.password = "";
+    parsedUrl.hash = "";
     Array.from(parsedUrl.searchParams.keys()).forEach((key) => {
-      if (key.toLowerCase().startsWith("utm_") || TRACKING_PARAMETERS.includes(key.toLowerCase())) {
+      const lowerKey = key.toLowerCase();
+      const looksSensitive = SENSITIVE_QUERY_PARAMETERS.some((parameter) => {
+        return lowerKey === parameter || lowerKey.endsWith(`_${parameter}`) || lowerKey.endsWith(`-${parameter}`);
+      });
+
+      if (lowerKey.startsWith("utm_") || TRACKING_PARAMETERS.includes(lowerKey) || looksSensitive) {
         parsedUrl.searchParams.delete(key);
       }
     });

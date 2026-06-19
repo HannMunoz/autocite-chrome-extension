@@ -1,10 +1,51 @@
 let extensionContextInvalid = false;
 let latestSelectedText = "";
+let extensionContextCheckTimer = null;
+let autociteCaptureEnabled = false;
 
 const AUTOCITE_BUTTON_ID = "autocite-floating-button";
+const AUTOCITE_UI_ATTRIBUTE = "data-autocite-ui";
+const AUTOCITE_INSTANCE_ATTRIBUTE = "data-autocite-instance";
+const AUTOCITE_INSTANCE_ID = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const AUTOCITE_LEGACY_ELEMENT_IDS = [
+  AUTOCITE_BUTTON_ID,
+  "autocite-sidebar-container",
+  "autocite-overlay"
+];
 const SIDEBAR_STATE_KEY = "sidebarState";
 const SIDEBAR_STATE_CLOSED = "closed";
-const DEBUG_AUTOCITE = true;
+const DEBUG_AUTOCITE = false;
+
+function debugLog() {}
+
+function getAutoCiteElements() {
+  const elements = new Set(document.querySelectorAll(`[${AUTOCITE_UI_ATTRIBUTE}]`));
+
+  AUTOCITE_LEGACY_ELEMENT_IDS.forEach((elementId) => {
+    document.querySelectorAll(`[id="${elementId}"]`).forEach((element) => elements.add(element));
+  });
+
+  return Array.from(elements);
+}
+
+function cleanupAutoCiteUi({ allInstances = false } = {}) {
+  getAutoCiteElements().forEach((element) => {
+    if (allInstances || element.getAttribute(AUTOCITE_INSTANCE_ATTRIBUTE) === AUTOCITE_INSTANCE_ID) {
+      element.remove();
+    }
+  });
+}
+
+function invalidateExtensionContext() {
+  extensionContextInvalid = true;
+
+  if (extensionContextCheckTimer !== null) {
+    window.clearInterval(extensionContextCheckTimer);
+    extensionContextCheckTimer = null;
+  }
+
+  cleanupAutoCiteUi();
+}
 
 function debugAuthorDetection(method, value) {
   if (!DEBUG_AUTOCITE) {
@@ -12,9 +53,9 @@ function debugAuthorDetection(method, value) {
   }
 
   if (value) {
-    console.log(`[AutoCite] Author detected from ${method}:`, value);
+    debugLog(`[AutoCite] Author detected from ${method}:`, value);
   } else {
-    console.log(`[AutoCite] No author detected from ${method}.`);
+    debugLog(`[AutoCite] No author detected from ${method}.`);
   }
 }
 
@@ -437,9 +478,10 @@ function canUseChromeRuntime() {
     return !extensionContextInvalid &&
       typeof chrome !== "undefined" &&
       chrome.runtime &&
+      typeof chrome.runtime.id === "string" &&
       chrome.runtime.sendMessage;
   } catch (error) {
-    extensionContextInvalid = true;
+    invalidateExtensionContext();
     return false;
   }
 }
@@ -453,25 +495,23 @@ function sendMessageToSidebar(message) {
     chrome.runtime.sendMessage(message, () => {
       try {
         const ignoredError = chrome.runtime.lastError;
-        console.log("Message sent to sidebar");
+        debugLog("Message sent to sidebar");
       } catch (error) {
-        extensionContextInvalid = true;
+        invalidateExtensionContext();
       }
     });
   } catch (error) {
-    extensionContextInvalid = true;
+    invalidateExtensionContext();
   }
 }
 
 function saveCopiedSource(selectedText) {
-  console.log("Copied text detected");
-
   const copiedSource = {
     copiedText: selectedText,
     sourceDetails: getSourceDetails()
   };
 
-  console.log("Metadata extracted", copiedSource.sourceDetails);
+  debugLog("Metadata extracted", copiedSource.sourceDetails);
 
   sendMessageToSidebar({
     type: "COPIED_TEXT_DETECTED",
@@ -480,9 +520,6 @@ function saveCopiedSource(selectedText) {
 }
 
 function openAutoCiteSidebar() {
-  console.log("Cite button clicked");
-  console.log("Opening sidebar");
-
   if (!canUseChromeRuntime()) {
     console.error("[AutoCite] Cannot open sidebar because the extension context is unavailable.");
     return;
@@ -499,24 +536,33 @@ function openAutoCiteSidebar() {
         console.error("[AutoCite] Sidebar did not open.");
         return;
       }
-
-      console.log("Sidebar opened successfully");
     } catch (error) {
-      extensionContextInvalid = true;
+      invalidateExtensionContext();
     }
   });
 }
 
 function createFloatingButton() {
-  if (document.getElementById(AUTOCITE_BUTTON_ID)) {
+  const existingButtons = Array.from(document.querySelectorAll(`[id="${AUTOCITE_BUTTON_ID}"]`));
+  const currentButton = existingButtons.find((button) => {
+    return button.getAttribute(AUTOCITE_INSTANCE_ATTRIBUTE) === AUTOCITE_INSTANCE_ID;
+  });
+
+  if (currentButton) {
+    existingButtons.filter((button) => button !== currentButton).forEach((button) => button.remove());
     return;
   }
 
+  existingButtons.forEach((button) => button.remove());
+
   const button = document.createElement("button");
   button.id = AUTOCITE_BUTTON_ID;
+  button.className = "autocite-injected-ui";
   button.type = "button";
   button.textContent = "Cite";
   button.setAttribute("aria-label", "Open AutoCite");
+  button.setAttribute(AUTOCITE_UI_ATTRIBUTE, "floating-button");
+  button.setAttribute(AUTOCITE_INSTANCE_ATTRIBUTE, AUTOCITE_INSTANCE_ID);
 
   Object.assign(button.style, {
     position: "fixed",
@@ -563,45 +609,66 @@ function showFloatingButton() {
 }
 
 function hideFloatingButton() {
-  const button = document.getElementById(AUTOCITE_BUTTON_ID);
-
-  if (button) {
-    button.remove();
-  }
+  document.querySelectorAll(`[id="${AUTOCITE_BUTTON_ID}"]`).forEach((button) => button.remove());
 }
 
 function applySidebarState(sidebarState) {
   if (sidebarState === SIDEBAR_STATE_CLOSED) {
+    autociteCaptureEnabled = false;
     hideFloatingButton();
     return;
   }
 
+  autociteCaptureEnabled = true;
   showFloatingButton();
 }
 
 function loadSidebarState() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
-    showFloatingButton();
+    invalidateExtensionContext();
     return;
   }
 
   try {
     chrome.storage.local.get([SIDEBAR_STATE_KEY], (result) => {
       if (chrome.runtime && chrome.runtime.lastError) {
-        showFloatingButton();
+        invalidateExtensionContext();
         return;
       }
 
       applySidebarState(result[SIDEBAR_STATE_KEY]);
     });
   } catch (error) {
-    showFloatingButton();
+    invalidateExtensionContext();
+  }
+}
+
+function startExtensionContextCheck() {
+  if (extensionContextCheckTimer !== null) {
+    return;
+  }
+
+  extensionContextCheckTimer = window.setInterval(() => {
+    if (!canUseChromeRuntime()) {
+      invalidateExtensionContext();
+    }
+  }, 2000);
+}
+
+function checkExtensionContext() {
+  if (!canUseChromeRuntime()) {
+    invalidateExtensionContext();
   }
 }
 
 try {
   if (!extensionContextInvalid && typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === "AUTOCITE_PING") {
+        sendResponse({ ready: true });
+        return;
+      }
+
       if (message.type === "SHOW_AUTOCITE_BUTTON") {
         showFloatingButton();
         return;
@@ -634,8 +701,21 @@ try {
     });
   }
 } catch (error) {
-  extensionContextInvalid = true;
+  invalidateExtensionContext();
 }
+
+window.addEventListener("focus", checkExtensionContext);
+window.addEventListener("pagehide", () => cleanupAutoCiteUi());
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && !extensionContextInvalid) {
+    loadSidebarState();
+  }
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    checkExtensionContext();
+  }
+});
 
 document.addEventListener("mouseup", () => {
   const selectedText = window.getSelection().toString().trim();
@@ -646,6 +726,10 @@ document.addEventListener("mouseup", () => {
 });
 
 document.addEventListener("copy", (event) => {
+  if (!autociteCaptureEnabled) {
+    return;
+  }
+
   const clipboardText = event.clipboardData ? event.clipboardData.getData("text/plain").trim() : "";
   const selectedText = (window.getSelection().toString() || clipboardText || latestSelectedText).trim();
 
@@ -655,8 +739,14 @@ document.addEventListener("copy", (event) => {
   }
 });
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", loadSidebarState, { once: true });
-} else {
+function initializeAutoCiteUi() {
+  cleanupAutoCiteUi({ allInstances: true });
+  startExtensionContextCheck();
   loadSidebarState();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeAutoCiteUi, { once: true });
+} else {
+  initializeAutoCiteUi();
 }
