@@ -525,7 +525,7 @@ function openAutoCiteSidebar() {
     return;
   }
 
-  chrome.runtime.sendMessage({ type: "OPEN_AUTOCITE_SIDEBAR" }, (response) => {
+  chrome.runtime.sendMessage({ type: "TOGGLE_AUTOCITE_SIDEBAR" }, (response) => {
     try {
       if (chrome.runtime.lastError) {
         console.error("[AutoCite] Sidebar open request failed.", chrome.runtime.lastError.message);
@@ -615,7 +615,7 @@ function hideFloatingButton() {
 function applySidebarState(sidebarState) {
   if (sidebarState === SIDEBAR_STATE_CLOSED) {
     autociteCaptureEnabled = false;
-    hideFloatingButton();
+    showFloatingButton();
     return;
   }
 

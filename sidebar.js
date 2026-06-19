@@ -780,6 +780,10 @@ function closeSidebarFully() {
   });
 }
 
+function markSidebarClosed() {
+  Storage.storageSet({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
+}
+
 function listen(target, eventName, handler) {
   if (target && typeof target.addEventListener === "function") {
     target.addEventListener(eventName, handler);
@@ -863,6 +867,11 @@ function setupEventListeners() {
 
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === "AUTOCITE_CLOSE_SIDEBAR") {
+        window.close();
+        return;
+      }
+
       if (message.type === "COPIED_TEXT_DETECTED" || message.type === "AUTOCITE_COPIED_SOURCE_UPDATED") {
         fillCopiedSource(message.copiedSource, true);
       }
@@ -897,6 +906,8 @@ function startAutoCite() {
   loadPageDetails();
   reloadCitationHistory();
 }
+
+window.addEventListener("pagehide", markSidebarClosed);
 
 startAutoCite();
 })();

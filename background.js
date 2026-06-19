@@ -3,6 +3,7 @@
 
 const SIDEBAR_STATE_KEY = "sidebarState";
 const SIDEBAR_STATE_OPEN = "open";
+const SIDEBAR_STATE_CLOSED = "closed";
 const VALID_SIDEBAR_STATES = new Set(["open", "minimized", "closed"]);
 const MAX_TEXT_LENGTH = 100000;
 const MAX_FIELD_LENGTH = 2000;
@@ -31,7 +32,7 @@ async function initializeSidebarState() {
     const result = await chrome.storage.local.get([SIDEBAR_STATE_KEY]);
 
     if (!VALID_SIDEBAR_STATES.has(result[SIDEBAR_STATE_KEY])) {
-      await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_OPEN });
+      await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
     }
   } catch (error) {
     console.error("[AutoCite] Could not initialize sidebar state.", error);
@@ -173,6 +174,34 @@ async function openAutoCiteSidebar(tab) {
   }
 }
 
+async function closeAutoCiteSidebar() {
+  try {
+    await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
+    chrome.runtime.sendMessage({ type: "AUTOCITE_CLOSE_SIDEBAR" }, () => {
+      const ignoredError = chrome.runtime.lastError;
+    });
+    return true;
+  } catch (error) {
+    console.error("[AutoCite] Failed to close sidebar.", error);
+    return false;
+  }
+}
+
+async function toggleAutoCiteSidebar(tab) {
+  try {
+    const result = await chrome.storage.local.get([SIDEBAR_STATE_KEY]);
+
+    if (result[SIDEBAR_STATE_KEY] === SIDEBAR_STATE_OPEN) {
+      return closeAutoCiteSidebar();
+    }
+
+    return openAutoCiteSidebar(tab);
+  } catch (error) {
+    console.error("[AutoCite] Failed to toggle sidebar.", error);
+    return false;
+  }
+}
+
 function isValidCopiedSource(value) {
   return Boolean(
     value &&
@@ -186,7 +215,7 @@ function isValidCopiedSource(value) {
 initializeSidebarState();
 
 chrome.action.onClicked.addListener((tab) => {
-  openAutoCiteSidebar(tab);
+  toggleAutoCiteSidebar(tab);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -220,11 +249,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  if (message.type !== "OPEN_AUTOCITE_SIDEBAR") {
+  if (message.type !== "TOGGLE_AUTOCITE_SIDEBAR" && message.type !== "OPEN_AUTOCITE_SIDEBAR") {
     return;
   }
 
-  openAutoCiteSidebar(sender.tab).then((opened) => {
+  const sidebarAction = message.type === "TOGGLE_AUTOCITE_SIDEBAR" ? toggleAutoCiteSidebar : openAutoCiteSidebar;
+
+  sidebarAction(sender.tab).then((opened) => {
     sendResponse({ opened });
   });
 
