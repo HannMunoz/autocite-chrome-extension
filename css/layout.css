@@ -15,11 +15,12 @@
 }
 
 .eyebrow {
-  margin: 0 0 4px;
+  margin: 0 0 5px;
   color: var(--primary-hover);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -259,7 +260,7 @@
   margin: var(--space-md) 0 0;
   color: var(--primary-hover);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .history-list {
@@ -333,7 +334,7 @@
 .history-meta {
   color: var(--accent);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .history-url {
@@ -346,7 +347,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   margin-top: var(--space-sm);
   transition: color var(--transition-fast);
 }
@@ -432,7 +433,7 @@
   background: #e5efe2;
   color: var(--primary-hover);
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 650;
   padding: var(--space-xs) var(--space-md);
 }
 
@@ -450,7 +451,7 @@
   box-shadow: var(--shadow-md);
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   opacity: 0;
   padding: var(--space-sm) var(--space-md);
   pointer-events: none;
