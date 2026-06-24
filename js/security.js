@@ -22,6 +22,7 @@ const SENSITIVE_QUERY_PARAMETERS = [
   "token"
 ];
 const TRACKING_PARAMETERS = ["fbclid", "gclid", "dclid", "msclkid"];
+const DOI_PATTERN = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
 
 function sanitizeText(value, maxLength = MAX_FIELD_LENGTH) {
   if (typeof value !== "string") {
@@ -39,15 +40,36 @@ function sanitizeCopiedText(value) {
   return sanitizeText(value, MAX_TEXT_LENGTH);
 }
 
+function cleanDoi(value) {
+  return sanitizeText(value, 500)
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "")
+    .replace(/[)\].,;:!?]+$/g, "")
+    .trim();
+}
+
+function extractDoi(value) {
+  const cleanValue = sanitizeText(value, MAX_TEXT_LENGTH);
+  const doiUrlMatch = cleanValue.match(/https?:\/\/(?:dx\.)?doi\.org\/(10\.\d{4,9}\/[^\s<>"']+)/i);
+
+  if (doiUrlMatch) {
+    return cleanDoi(doiUrlMatch[1]);
+  }
+
+  const doiMatch = cleanValue.match(DOI_PATTERN);
+  return doiMatch ? cleanDoi(doiMatch[0]) : "";
+}
+
 function sanitizeUrl(value) {
   const cleanValue = sanitizeText(value, MAX_FIELD_LENGTH);
+  const doi = extractDoi(cleanValue);
 
   if (!cleanValue) {
     return "";
   }
 
-  if (/^10\.\d{4,9}\/\S+$/i.test(cleanValue)) {
-    return cleanValue;
+  if (doi && /^(?:doi:\s*)?(?:https?:\/\/(?:dx\.)?doi\.org\/)?10\.\d{4,9}\/\S+$/i.test(cleanValue)) {
+    return doi;
   }
 
   try {
@@ -109,6 +131,7 @@ function sanitizeCopiedSource(copiedSource) {
 window.AutoCiteSecurity = {
   sanitizeText,
   sanitizeCopiedText,
+  extractDoi,
   sanitizeUrl,
   sanitizeSourceDetails,
   sanitizeCopiedSource

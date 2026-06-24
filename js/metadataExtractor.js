@@ -12,11 +12,18 @@ function getFallbackDetailsFromTab(activeTab) {
   const cleanUrl = url.toLowerCase().split(/[?#]/)[0];
   const isPdf = cleanUrl.endsWith(".pdf");
   const fallbackTitle = Security.sanitizeText(activeTab && activeTab.title ? activeTab.title.replace(/\.pdf$/i, "") : "");
+  let website = "";
+
+  try {
+    website = url ? new URL(url).hostname.replace(/^www\./, "") : "";
+  } catch (error) {
+    website = "";
+  }
 
   return {
     sourceType: isPdf ? "pdf" : "website",
     title: fallbackTitle,
-    website: "",
+    website,
     publisher: "",
     journalName: "",
     volume: "",
@@ -27,6 +34,93 @@ function getFallbackDetailsFromTab(activeTab) {
     publishedDate: "",
     accessDate: new Date().toISOString().slice(0, 10)
   };
+}
+
+function isPdfTab(activeTab) {
+  const cleanUrl = Security.sanitizeUrl(activeTab && activeTab.url ? activeTab.url : "").toLowerCase().split(/[?#]/)[0];
+  const title = Security.sanitizeText(activeTab && activeTab.title ? activeTab.title : "");
+  return cleanUrl.endsWith(".pdf") || /\.pdf$/i.test(title);
+}
+
+function getPdfDetailsFromBackground(activeTab, onSuccess, onFallback) {
+  if (!chrome.runtime || !chrome.runtime.sendMessage) {
+    onFallback();
+    return;
+  }
+
+  chrome.runtime.sendMessage({
+    type: "EXTRACT_PDF_DETAILS",
+    url: activeTab.url,
+    title: activeTab.title || ""
+  }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.sourceDetails) {
+      onSuccess({
+        sourceDetails: getFallbackDetailsFromTab(activeTab),
+        selectedText: ""
+      });
+      return;
+    }
+
+    onSuccess({
+      sourceDetails: Security.sanitizeSourceDetails(response.sourceDetails),
+      selectedText: ""
+    });
+  });
+}
+
+function urlsMatchForActiveTabScan(pastedUrl, activeTabUrl) {
+  try {
+    const pasted = new URL(pastedUrl);
+    const active = new URL(activeTabUrl);
+
+    pasted.hash = "";
+    active.hash = "";
+    return pasted.href === active.href;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function getActiveTab() {
+  if (!canUseChromeTabs()) {
+    return null;
+  }
+
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return activeTab || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function scanUrlDetails(url) {
+  const safeUrl = Security.sanitizeUrl(url);
+
+  if (!safeUrl || !chrome.runtime || !chrome.runtime.sendMessage) {
+    return null;
+  }
+
+  const activeTab = await getActiveTab();
+  const activeUrl = Security.sanitizeUrl(activeTab && activeTab.url ? activeTab.url : "");
+
+  if (!urlsMatchForActiveTabScan(safeUrl, activeUrl)) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      type: "SCAN_URL_DETAILS",
+      url: safeUrl
+    }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.sourceDetails) {
+        resolve(null);
+        return;
+      }
+
+      resolve(Security.sanitizeSourceDetails(response.sourceDetails));
+    });
+  });
 }
 
 function sendMessageToActiveTab(message) {
@@ -67,6 +161,11 @@ async function getActivePageDetails(onSuccess, onFallback) {
 
   chrome.tabs.sendMessage(activeTab.id, { type: "GET_PAGE_DETAILS" }, (response) => {
     if (chrome.runtime.lastError || !response) {
+      if (isPdfTab(activeTab)) {
+        getPdfDetailsFromBackground(activeTab, onSuccess, onFallback);
+        return;
+      }
+
       if (activeTab.url) {
         onSuccess({
           sourceDetails: getFallbackDetailsFromTab(activeTab),
@@ -88,6 +187,7 @@ async function getActivePageDetails(onSuccess, onFallback) {
 window.AutoCiteMetadata = {
   canUseChromeTabs,
   sendMessageToActiveTab,
-  getActivePageDetails
+  getActivePageDetails,
+  scanUrlDetails
 };
 })();

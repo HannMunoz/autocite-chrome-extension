@@ -73,6 +73,7 @@ const elements = {
 
 const buttons = {
   clearCopiedText: document.querySelector("#clearCopiedTextButton"),
+  pasteCopiedText: document.querySelector("#pasteCopiedTextButton"),
   copyCopiedText: document.querySelector("#copyCopiedTextButton"),
   addContributor: document.querySelector("#addContributorButton"),
   generate: document.querySelector("#generateButton"),
@@ -96,6 +97,8 @@ function getTodayDate() {
 }
 
 function getSourceFromForm() {
+  const copiedTextDoi = Security.extractDoi(elements.copiedText.value);
+
   return {
     sourceType: elements.sourceType.value,
     contributors: Contributors.getContributorsFromForm(elements.contributorsList),
@@ -106,7 +109,7 @@ function getSourceFromForm() {
     volume: Security.sanitizeText(elements.sourceVolume.value, 100),
     issue: Security.sanitizeText(elements.sourceIssue.value, 100),
     pages: Security.sanitizeText(elements.sourcePages.value, 100),
-    url: Security.sanitizeUrl(elements.sourceUrl.value),
+    url: copiedTextDoi || Security.sanitizeUrl(elements.sourceUrl.value),
     publishedDate: Security.sanitizeText(elements.publishedDate.value, 100),
     accessDate: elements.accessDate.value || getTodayDate()
   };
@@ -170,6 +173,59 @@ function renderValidationWarnings(warnings) {
   });
 }
 
+function getRequiredFieldStatus(source) {
+  const hasAuthorName = Contributors.getAuthorContributors(source.contributors).some((contributor) => {
+    return contributor.organizationName || (contributor.firstName && contributor.lastName);
+  });
+  const hasOrganization = Boolean(Contributors.getOrganizationContributor(source.contributors));
+
+  return {
+    title: {
+      complete: Boolean(source.title),
+      label: "Title"
+    },
+    author: {
+      complete: hasAuthorName || hasOrganization,
+      label: "Author",
+      missingText: "Missing author. Add a person or organization."
+    },
+    date: {
+      label: "Date",
+      complete: Boolean(source.publishedDate),
+      missingText: "Missing date. Use n.d. if unavailable."
+    },
+    publisher: {
+      label: "Publisher",
+      complete: Boolean(source.publisher),
+      missingText: "Missing publisher or organization."
+    },
+    url: {
+      label: "URL or DOI",
+      complete: Boolean(source.url),
+      missingText: "Missing URL or DOI."
+    }
+  };
+}
+
+function updateFieldStatuses(source) {
+  const statuses = getRequiredFieldStatus(source);
+
+  document.querySelectorAll(".contributor-card").forEach((card) => {
+    Contributors.updateContributorCardFields(card);
+  });
+
+  document.querySelectorAll("[data-status-for]").forEach((statusElement) => {
+    const status = statuses[statusElement.dataset.statusFor];
+
+    if (!status) {
+      return;
+    }
+
+    statusElement.className = `field-status ${status.complete ? "is-complete" : "is-missing"}`;
+    statusElement.textContent = status.complete ? `${status.label} added.` : status.missingText || `Missing ${status.label.toLowerCase()}.`;
+  });
+}
+
 function findDuplicateCitation(url, fullCitation) {
   const cleanUrl = (url || "").toLowerCase();
   const cleanCitation = (fullCitation || "").toLowerCase();
@@ -194,7 +250,7 @@ function getValidationWarnings(source, citation) {
   }
 
   const hasAuthorName = Contributors.getAuthorContributors(source.contributors).some((contributor) => {
-    return contributor.firstName || contributor.middleName || contributor.lastName || contributor.suffix;
+    return contributor.organizationName || (contributor.firstName && contributor.lastName);
   });
 
   if (!hasAuthorName && !Contributors.getOrganizationContributor(source.contributors)) {
@@ -228,6 +284,7 @@ function generateCitation() {
   const source = getSourceFromForm();
   const citation = CitationGenerator.generateCitationForSource(elements.citationStyle.value, source);
 
+  updateFieldStatuses(source);
   renderValidationWarnings(getValidationWarnings(source, citation));
 
   if (elements.manualOverride.checked) {
@@ -246,6 +303,7 @@ function regenerateFromContributorEdit() {
 
 function fillSourceDetails(details) {
   const sourceDetails = Security.sanitizeSourceDetails(details);
+  const copiedTextDoi = Security.extractDoi(elements.copiedText.value);
 
   elements.sourceType.value = sourceDetails.sourceType || "website";
   updateSourceTypeFields();
@@ -261,7 +319,7 @@ function fillSourceDetails(details) {
   elements.sourceVolume.value = sourceDetails.volume || "";
   elements.sourceIssue.value = sourceDetails.issue || "";
   elements.sourcePages.value = sourceDetails.pages || "";
-  elements.sourceUrl.value = sourceDetails.url || "";
+  elements.sourceUrl.value = copiedTextDoi || sourceDetails.url || "";
   elements.publishedDate.value = sourceDetails.publishedDate || "";
   elements.accessDate.value = sourceDetails.accessDate || getTodayDate();
   generateCitation();
@@ -273,12 +331,123 @@ function fillCopiedSource(copiedSource, showUpdatedToast = false) {
   }
 
   const safeCopiedSource = Security.sanitizeCopiedSource(copiedSource);
+  const copiedTextDoi = Security.extractDoi(safeCopiedSource.copiedText);
+  const sourceDetails = {
+    ...safeCopiedSource.sourceDetails,
+    url: copiedTextDoi || safeCopiedSource.sourceDetails.url
+  };
+  const copiedUrl = getFirstHttpUrl(safeCopiedSource.copiedText);
   elements.manualOverride.checked = false;
   elements.copiedText.value = safeCopiedSource.copiedText;
-  fillSourceDetails(safeCopiedSource.sourceDetails);
+  fillSourceDetails(sourceDetails);
+
+  if (copiedUrl && isOnlyHttpUrl(safeCopiedSource.copiedText) && showUpdatedToast) {
+    scanSourceFromUrl(copiedUrl);
+    return;
+  }
 
   if (showUpdatedToast) {
     UI.showMessage("Updated!", "success");
+  }
+}
+
+function getFirstHttpUrl(text) {
+  const value = Security.sanitizeText(text);
+  const cleanUrlCandidate = (urlText) => Security.sanitizeUrl(
+    Security.sanitizeText(urlText)
+      .replace(/^[<("'`]+/, "")
+      .replace(/[>)"'`,.;:!?]+$/, "")
+  );
+  const directUrl = cleanUrlCandidate(value);
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const match = value.match(/https?:\/\/[^\s<>"']+/i);
+  return match ? cleanUrlCandidate(match[0]) : "";
+}
+
+function isOnlyHttpUrl(text) {
+  return /^<?https?:\/\/\S+>?$/i.test(Security.sanitizeText(text).trim());
+}
+
+async function scanSourceFromUrl(url) {
+  const safeUrl = Security.sanitizeUrl(url);
+
+  if (!safeUrl) {
+    return false;
+  }
+
+  UI.showMessage("Scanning link...", "info");
+  const sourceDetails = await Metadata.scanUrlDetails(safeUrl);
+
+  if (!sourceDetails) {
+    elements.copiedText.value = safeUrl;
+    elements.sourceUrl.value = safeUrl;
+    generateCitation();
+    UI.showMessage("Open that link in this tab, then try again.", "warning");
+    return false;
+  }
+
+  elements.manualOverride.checked = false;
+  elements.copiedText.value = safeUrl;
+  Storage.storageSet({ latestCopiedSource: null, latestSelectedText: safeUrl });
+  fillSourceDetails(sourceDetails);
+  UI.showMessage("Link scanned!", "success");
+  return true;
+}
+
+async function pasteCopiedTextFromClipboard() {
+  const clipboardText = await CopyActions.readClipboardText(UI.showMessage);
+  const safeText = Security.sanitizeCopiedText(clipboardText);
+
+  if (!safeText) {
+    return;
+  }
+
+  const doi = Security.extractDoi(safeText);
+  const url = getFirstHttpUrl(safeText);
+
+  if (url && await scanSourceFromUrl(url)) {
+    return;
+  }
+
+  elements.copiedText.value = safeText;
+  if (doi) {
+    elements.sourceUrl.value = doi;
+    generateCitation();
+  }
+  Storage.storageSet({ latestSelectedText: safeText });
+  UI.showMessage("Pasted!", "success");
+}
+
+function handleCopiedTextPaste(event) {
+  const pastedText = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+  const url = getFirstHttpUrl(pastedText);
+
+  if (!url) {
+    window.setTimeout(handleCopiedTextChange, 0);
+    return;
+  }
+
+  event.preventDefault();
+  scanSourceFromUrl(url);
+}
+
+function handleCopiedTextChange() {
+  const value = Security.sanitizeText(elements.copiedText.value);
+  const doi = Security.extractDoi(value);
+  const url = getFirstHttpUrl(value);
+
+  if (doi) {
+    elements.sourceUrl.value = doi;
+    generateCitation();
+    return;
+  }
+
+  if (url && isOnlyHttpUrl(value)) {
+    scanSourceFromUrl(url);
   }
 }
 
@@ -325,6 +494,7 @@ function clearCitationForm(message = "Cleared!") {
   elements.fullCitation.value = "";
   elements.inTextCitation.value = "";
   elements.validationWarnings.replaceChildren();
+  updateFieldStatuses(getSourceFromForm());
   Storage.storageSet({ latestCopiedSource: null, latestSelectedText: "" });
   Metadata.sendMessageToActiveTab({ type: "CLEAR_AUTOCITE_SELECTION" });
   UI.showMessage(message, "success");
@@ -586,7 +756,7 @@ function addHistoryEditForm(listItem, savedCitation, index) {
   inTextCitation.type = "text";
   const urlInput = document.createElement("input");
   urlInput.className = "edit-url";
-  urlInput.type = "url";
+  urlInput.type = "text";
   const copiedText = document.createElement("textarea");
   copiedText.className = "edit-copied-text";
   const copyActions = document.createElement("div");
@@ -833,7 +1003,10 @@ function listen(target, eventName, handler) {
 
 function setupEventListeners() {
   listen(buttons.clearCopiedText, "click", () => clearCitationForm());
+  listen(buttons.pasteCopiedText, "click", pasteCopiedTextFromClipboard);
   listen(buttons.copyCopiedText, "click", () => CopyActions.copyText(elements.copiedText.value, "copied text", UI.showMessage));
+  listen(elements.copiedText, "paste", handleCopiedTextPaste);
+  listen(elements.copiedText, "change", handleCopiedTextChange);
   listen(buttons.addContributor, "click", () => {
     Contributors.renderContributor(elements.contributorsList, Contributors.createEmptyContributor(), regenerateFromContributorEdit);
     generateCitation();

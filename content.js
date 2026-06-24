@@ -15,6 +15,7 @@ const AUTOCITE_LEGACY_ELEMENT_IDS = [
 const SIDEBAR_STATE_CLOSED = "closed";
 const SIDEBAR_STATE_DISMISSED = "dismissed";
 const DEBUG_AUTOCITE = false;
+const DOI_PATTERN = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
 
 function debugLog() {}
 
@@ -97,6 +98,26 @@ function cleanDate(dateText) {
   }
 
   return dateText.trim();
+}
+
+function cleanDoi(value) {
+  return (value || "")
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "")
+    .replace(/[)\].,;:!?]+$/g, "")
+    .trim();
+}
+
+function extractDoi(value) {
+  const cleanValue = (value || "").trim();
+  const doiUrlMatch = cleanValue.match(/https?:\/\/(?:dx\.)?doi\.org\/(10\.\d{4,9}\/[^\s<>"']+)/i);
+
+  if (doiUrlMatch) {
+    return cleanDoi(doiUrlMatch[1]);
+  }
+
+  const doiMatch = cleanValue.match(DOI_PATTERN);
+  return doiMatch ? cleanDoi(doiMatch[0]) : "";
 }
 
 function cleanAuthorText(authorText) {
@@ -411,6 +432,17 @@ function detectPublishedDate() {
   ])[0] || "");
 }
 
+function detectDoi() {
+  return extractDoi(getMetaContent([
+    'meta[name="citation_doi"]',
+    'meta[name="dc.identifier"]',
+    'meta[name="DC.Identifier"]',
+    'meta[name="prism.doi"]',
+    'meta[name="doi"]',
+    'meta[property="doi"]'
+  ]) || getJsonLdObjects().map((object) => object.doi || object.identifier || object.sameAs || object.url).find((value) => extractDoi(String(value || ""))) || document.body?.innerText.slice(0, 5000) || "");
+}
+
 function detectSourceType(url) {
   const cleanUrl = (url || "").toLowerCase().split(/[?#]/)[0];
   const contentType = document.contentType || "";
@@ -424,6 +456,7 @@ function detectSourceType(url) {
 
 function getSourceDetails() {
   const url = window.location.href;
+  const doi = detectDoi();
   const hostname = window.location.hostname.replace(/^www\./, "");
   const website = getMetaContent([
     'meta[property="og:site_name"]',
@@ -466,7 +499,7 @@ function getSourceDetails() {
         'meta[name="prism.endingPage"]'
       ])
     ].filter(Boolean).join("-"),
-    url,
+    url: doi || url,
     author: detectAuthor(),
     publishedDate: detectPublishedDate(),
     accessDate: new Date().toISOString().slice(0, 10)
@@ -506,9 +539,16 @@ function sendMessageToSidebar(message) {
 }
 
 function saveCopiedSource(selectedText) {
+  const sourceDetails = getSourceDetails();
+  const copiedTextDoi = extractDoi(selectedText);
+
+  if (copiedTextDoi) {
+    sourceDetails.url = copiedTextDoi;
+  }
+
   const copiedSource = {
     copiedText: selectedText,
-    sourceDetails: getSourceDetails()
+    sourceDetails
   };
 
   debugLog("Metadata extracted", copiedSource.sourceDetails);

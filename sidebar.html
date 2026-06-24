@@ -35,14 +35,15 @@
           <div class="panel-header--row">
             <div class="panel-header-text">
               <h2>Copied Text</h2>
-              <p class="panel-description">Highlight and copy text from any webpage to start a citation.</p>
+              <p class="panel-description">Highlight and copy webpage text, or paste a website link to scan its citation details.</p>
             </div>
             <div class="heading-actions">
               <button class="small-button soft-button" id="clearCopiedTextButton" type="button">Clear Text</button>
+              <button class="small-button secondary-button" id="pasteCopiedTextButton" type="button">Paste</button>
               <button class="small-button secondary-button" id="copyCopiedTextButton" type="button">Copy</button>
             </div>
           </div>
-          <textarea id="copiedText" placeholder="Your copied text will appear here…"></textarea>
+          <textarea id="copiedText" placeholder="Copied text appears here. Paste website links here."></textarea>
         </section>
 
         <section class="panel">
@@ -62,6 +63,7 @@
             <div class="source-field">
               <label id="sourceTitleLabel" for="sourceTitle">Page Title</label>
               <input id="sourceTitle" type="text" placeholder="Page title" />
+              <p class="field-status" data-status-for="title"></p>
             </div>
 
             <div class="contributors-section">
@@ -70,6 +72,7 @@
                 <button class="small-button secondary-button" id="addContributorButton" type="button">Add contributor</button>
               </div>
               <div id="contributorsList" class="contributors-list"></div>
+              <p class="field-status" data-status-for="author"></p>
             </div>
 
             <div class="source-field" data-source-types="website">
@@ -80,6 +83,7 @@
             <div class="source-field" data-source-types="website pdf book journal">
               <label id="sourcePublisherLabel" for="sourcePublisher">Publisher or Organization</label>
               <input id="sourcePublisher" type="text" placeholder="Publisher or organization" />
+              <p class="field-status" data-status-for="publisher"></p>
             </div>
 
             <div class="source-field" data-source-types="journal">
@@ -100,11 +104,13 @@
             <div class="source-field">
               <label id="publishedDateLabel" for="publishedDate">Published Date</label>
               <input id="publishedDate" type="text" placeholder="YYYY-MM-DD, or leave blank" />
+              <p class="field-status" data-status-for="date"></p>
             </div>
 
             <div class="source-field">
               <label id="sourceUrlLabel" for="sourceUrl">URL</label>
-              <input id="sourceUrl" type="url" placeholder="https://example.com or DOI" />
+              <input id="sourceUrl" type="text" placeholder="https://example.com or DOI" />
+              <p class="field-status" data-status-for="url"></p>
             </div>
 
             <div class="source-field" data-source-types="website pdf">
@@ -205,7 +211,7 @@
         </section>
       </section>
 
-      <p class="privacy-note">Your copied text and citations stay on your device and are not uploaded to any server.</p>
+      <p class="privacy-note">Your copied information, website links, and citations stay on your device and are not uploaded to any server.</p>
       <p class="toast-message" id="copyMessage" aria-live="polite"></p>
     </main>
 

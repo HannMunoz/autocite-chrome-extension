@@ -204,6 +204,38 @@ function updateContributorCardFields(card) {
   if (organizationField) {
     organizationField.classList.toggle("is-hidden", !isOrganization);
   }
+
+  updateContributorFieldStatus(card, ".contributor-first", !isOrganization, "First name");
+  updateContributorFieldStatus(card, ".contributor-last", !isOrganization, "Last name");
+  updateContributorFieldStatus(card, ".contributor-organization", isOrganization, "Organization name");
+}
+
+function updateContributorFieldStatus(card, inputSelector, isRequired, labelText) {
+  const input = card.querySelector(inputSelector);
+
+  if (!input) {
+    return;
+  }
+
+  let status = input.parentElement.querySelector(".field-status");
+
+  if (!isRequired) {
+    if (status) {
+      status.remove();
+    }
+
+    return;
+  }
+
+  if (!status) {
+    status = document.createElement("p");
+    status.className = "field-status";
+    input.parentElement.appendChild(status);
+  }
+
+  const isComplete = Boolean(input.value.trim());
+  status.className = `field-status ${isComplete ? "is-complete" : "is-missing"}`;
+  status.textContent = isComplete ? `${labelText} added.` : `Missing ${labelText.toLowerCase()}.`;
 }
 
 function createLabeledInput(labelText, className, placeholder = "") {

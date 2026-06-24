@@ -24,6 +24,29 @@ async function copyText(text, label, showMessage) {
   notify("Copied!", "success");
 }
 
+async function readClipboardText(showMessage) {
+  const notify = typeof showMessage === "function" ? showMessage : () => {};
+
+  if (!navigator.clipboard || !navigator.clipboard.readText) {
+    notify("Clipboard paste is not available in this browser.", "warning");
+    return "";
+  }
+
+  try {
+    const clipboardText = await navigator.clipboard.readText();
+
+    if (!clipboardText.trim()) {
+      notify("Clipboard is empty.", "warning");
+      return "";
+    }
+
+    return clipboardText;
+  } catch (error) {
+    notify("Clipboard access was blocked. Paste with Ctrl+V instead.", "warning");
+    return "";
+  }
+}
+
 function copyTextWithFallback(text) {
   const temporaryTextBox = document.createElement("textarea");
   temporaryTextBox.value = text;
@@ -53,6 +76,7 @@ function buildCopiedTextWithInTextCitation(copiedText, inTextCitation) {
 
 window.AutoCiteCopyActions = {
   copyText,
+  readClipboardText,
   buildCopiedTextWithInTextCitation
 };
 })();

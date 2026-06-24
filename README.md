@@ -5,6 +5,8 @@ AutoCite is a Chrome Extension that helps students create citations from copied 
 ## Features
 
 * Detects copied text after you open AutoCite on a tab
+* Lets users paste website links when copied webpage text cannot be detected
+* Detects DOI values from copied text, page metadata, scanned webpages, and PDFs
 * Generates citations for APA 7th edition, MLA 9th edition, and Chicago Author-Date style
 * Supports websites, PDFs, books, and journal articles
 * Generates full citation and in-text citation
@@ -16,7 +18,7 @@ AutoCite is a Chrome Extension that helps students create citations from copied 
 
 ## Privacy
 
-AutoCite does not upload copied text, citations, or browsing data to any server. Citation data is stored locally in the user's browser. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
+AutoCite does not upload copied text, citations, or browsing data to any server. Citation data is stored locally in the user's browser. AutoCite may make limited metadata requests to the current active page only for citation generation. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
 
 ## How to Install and Test in Chrome
 
