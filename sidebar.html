@@ -31,16 +31,22 @@
       </nav>
 
       <section class="tab-panel is-active" id="citePanel">
+        <section class="tab-connection" id="activeTabStatus" aria-live="polite">
+          <div>
+            <strong id="activeTabStatusTitle">Checking current tab...</strong>
+            <p id="activeTabStatusDetails">AutoCite uses only the tab you are viewing.</p>
+          </div>
+        </section>
+
         <section class="panel">
           <div class="panel-header--row">
             <div class="panel-header-text">
               <h2>Copied Text</h2>
               <p class="panel-description">Highlight and copy webpage text, or paste a website link to scan its citation details.</p>
             </div>
-            <div class="heading-actions">
+            <div class="heading-actions copied-text-actions">
+              <button class="small-button secondary-button is-hidden" id="useActiveTabButton" type="button">Connect</button>
               <button class="small-button soft-button" id="clearCopiedTextButton" type="button">Clear Text</button>
-              <button class="small-button secondary-button" id="pasteCopiedTextButton" type="button">Paste</button>
-              <button class="small-button secondary-button" id="copyCopiedTextButton" type="button">Copy</button>
             </div>
           </div>
           <textarea id="copiedText" placeholder="Copied text appears here. Paste website links here."></textarea>

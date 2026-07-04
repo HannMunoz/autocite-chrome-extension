@@ -68,13 +68,14 @@ const elements = {
   selectionStatus: document.querySelector("#selectionStatus"),
   citationHistory: document.querySelector("#citationHistory"),
   bibliographyCount: document.querySelector("#bibliographyCount"),
-  bibliographyPreview: document.querySelector("#bibliographyPreview")
+  bibliographyPreview: document.querySelector("#bibliographyPreview"),
+  activeTabStatus: document.querySelector("#activeTabStatus"),
+  activeTabStatusTitle: document.querySelector("#activeTabStatusTitle"),
+  activeTabStatusDetails: document.querySelector("#activeTabStatusDetails")
 };
 
 const buttons = {
   clearCopiedText: document.querySelector("#clearCopiedTextButton"),
-  pasteCopiedText: document.querySelector("#pasteCopiedTextButton"),
-  copyCopiedText: document.querySelector("#copyCopiedTextButton"),
   addContributor: document.querySelector("#addContributorButton"),
   generate: document.querySelector("#generateButton"),
   save: document.querySelector("#saveCitationButton"),
@@ -89,7 +90,8 @@ const buttons = {
   exportTxt: document.querySelector("#exportTxtButton"),
   exportDocx: document.querySelector("#exportDocxButton"),
   minimizeSidebar: document.querySelector("#minimizeSidebarButton"),
-  closeSidebar: document.querySelector("#closeSidebarButton")
+  closeSidebar: document.querySelector("#closeSidebarButton"),
+  useActiveTab: document.querySelector("#useActiveTabButton")
 };
 
 function getTodayDate() {
@@ -462,16 +464,80 @@ function loadSavedSelection() {
   });
 }
 
-function loadPageDetails() {
+function formatTabLabel(activeTabContext) {
+  if (!activeTabContext) {
+    return "Current tab unavailable";
+  }
+
+  return activeTabContext.title || activeTabContext.hostname || activeTabContext.url || "Current tab";
+}
+
+function renderActiveTabStatus(activeTabContext) {
+  const connected = Boolean(activeTabContext && activeTabContext.connected);
+  const canAccess = Boolean(activeTabContext && activeTabContext.canAccess);
+  const tabLabel = Security.sanitizeText(formatTabLabel(activeTabContext), 180);
+
+  elements.activeTabStatus.className = `tab-connection ${connected ? "is-connected" : "is-warning"}`;
+  elements.activeTabStatusTitle.textContent = connected ? `Connected to: ${tabLabel}` : "Not connected to this tab";
+  elements.activeTabStatusDetails.textContent = connected
+    ? ""
+    : Security.sanitizeText(activeTabContext && activeTabContext.reason ? activeTabContext.reason : "Switch to a webpage or reconnect before citing.", 220);
+  UI.toggleClass(elements.activeTabStatusDetails, "is-hidden", connected);
+  UI.toggleClass(buttons.useActiveTab, "is-hidden", connected || activeTabContext === null || canAccess === false);
+}
+
+function refreshActiveTabStatus() {
+  Metadata.getActiveTabContext(renderActiveTabStatus);
+}
+
+function loadPageDetails({ preserveSavedSelection = true } = {}) {
+  refreshActiveTabStatus();
+
   Metadata.getActivePageDetails((response) => {
+    if (response && response.pageContext) {
+      renderActiveTabStatus({
+        ...response.pageContext,
+        connected: true,
+        canAccess: true,
+        hostname: (() => {
+          try {
+            return new URL(response.pageContext.url).hostname.replace(/^www\./, "");
+          } catch (error) {
+            return "";
+          }
+        })()
+      });
+    }
+
     fillSourceDetails(response && response.sourceDetails);
 
     if (response && response.selectedText) {
       elements.copiedText.value = Security.sanitizeCopiedText(response.selectedText);
-    } else {
+    } else if (preserveSavedSelection) {
       loadSavedSelection();
     }
-  }, loadSavedSelection);
+  }, () => {
+    if (preserveSavedSelection) {
+      loadSavedSelection();
+    }
+  });
+}
+
+function useActiveTab() {
+  UI.showMessage("Connecting tab...", "info");
+
+  Metadata.useActiveTab((response) => {
+    const activeTabContext = response && response.activeTabContext;
+    renderActiveTabStatus(activeTabContext);
+
+    if (response && response.connected) {
+      loadPageDetails({ preserveSavedSelection: false });
+      UI.showMessage("Tab connected!", "success");
+      return;
+    }
+
+    UI.showMessage("Click the AutoCite toolbar icon if this page does not connect.", "warning");
+  });
 }
 
 function clearCitationForm(message = "Cleared!") {
@@ -984,6 +1050,15 @@ function markSidebarClosed() {
 }
 
 function rememberSidebarTab() {
+  if (Metadata && typeof Metadata.getTargetTabId === "function") {
+    const targetTabId = Metadata.getTargetTabId();
+
+    if (typeof targetTabId === "number") {
+      sidebarTabId = targetTabId;
+      return;
+    }
+  }
+
   if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.query) {
     return;
   }
@@ -1003,8 +1078,6 @@ function listen(target, eventName, handler) {
 
 function setupEventListeners() {
   listen(buttons.clearCopiedText, "click", () => clearCitationForm());
-  listen(buttons.pasteCopiedText, "click", pasteCopiedTextFromClipboard);
-  listen(buttons.copyCopiedText, "click", () => CopyActions.copyText(elements.copiedText.value, "copied text", UI.showMessage));
   listen(elements.copiedText, "paste", handleCopiedTextPaste);
   listen(elements.copiedText, "change", handleCopiedTextChange);
   listen(buttons.addContributor, "click", () => {
@@ -1028,6 +1101,7 @@ function setupEventListeners() {
   listen(buttons.exportDocx, "click", exportDocx);
   listen(buttons.minimizeSidebar, "click", minimizeSidebar);
   listen(buttons.closeSidebar, "click", closeSidebarFully);
+  listen(buttons.useActiveTab, "click", useActiveTab);
   listen(elements.historySort, "change", () => renderHistory(State.currentHistory));
   listen(elements.historySearch, "input", () => renderHistory(State.currentHistory));
 
@@ -1083,6 +1157,12 @@ function setupEventListeners() {
     chrome.runtime.onMessage.addListener((message) => {
       if (message.type === "AUTOCITE_CLOSE_SIDEBAR") {
         closeSidebarWindow();
+        return;
+      }
+
+      if (message.type === "AUTOCITE_ACTIVE_TAB_CHANGED") {
+        renderActiveTabStatus(message.activeTabContext);
+        loadPageDetails({ preserveSavedSelection: false });
         return;
       }
 

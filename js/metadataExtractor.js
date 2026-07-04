@@ -7,6 +7,15 @@ function canUseChromeTabs() {
   return typeof chrome !== "undefined" && chrome.tabs && chrome.runtime;
 }
 
+function getTargetTabId() {
+  try {
+    const tabId = Number(new URLSearchParams(window.location.search).get("tabId"));
+    return Number.isInteger(tabId) && tabId > 0 ? tabId : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 function getFallbackDetailsFromTab(activeTab) {
   const url = Security.sanitizeUrl(activeTab && activeTab.url ? activeTab.url : "");
   const cleanUrl = url.toLowerCase().split(/[?#]/)[0];
@@ -86,6 +95,16 @@ async function getActiveTab() {
     return null;
   }
 
+  const targetTabId = getTargetTabId();
+
+  if (targetTabId && chrome.tabs.get) {
+    try {
+      return await chrome.tabs.get(targetTabId);
+    } catch (error) {
+      return null;
+    }
+  }
+
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     return activeTab || null;
@@ -123,12 +142,66 @@ async function scanUrlDetails(url) {
   });
 }
 
+function getActiveTabContext(callback) {
+  if (!chrome.runtime || !chrome.runtime.sendMessage) {
+    callback({
+      connected: false,
+      canAccess: false,
+      reason: "AutoCite cannot read the active tab right now."
+    });
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: "GET_ACTIVE_TAB_CONTEXT", tabId: getTargetTabId() }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.activeTabContext) {
+      callback({
+        connected: false,
+        canAccess: false,
+        reason: "AutoCite lost the tab connection."
+      });
+      return;
+    }
+
+    callback(response.activeTabContext);
+  });
+}
+
+function useActiveTab(callback) {
+  if (!chrome.runtime || !chrome.runtime.sendMessage) {
+    callback({
+      connected: false,
+      activeTabContext: {
+        connected: false,
+        canAccess: false,
+        reason: "AutoCite cannot connect to the active tab right now."
+      }
+    });
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: "USE_ACTIVE_TAB", tabId: getTargetTabId() }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.activeTabContext) {
+      callback({
+        connected: false,
+        activeTabContext: {
+          connected: false,
+          canAccess: false,
+          reason: "Click the AutoCite toolbar icon to use this tab."
+        }
+      });
+      return;
+    }
+
+    callback(response);
+  });
+}
+
 function sendMessageToActiveTab(message) {
   if (!canUseChromeTabs()) {
     return;
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, ([activeTab]) => {
+  getActiveTab().then((activeTab) => {
     if (!activeTab || !activeTab.id) {
       return;
     }
@@ -145,14 +218,7 @@ async function getActivePageDetails(onSuccess, onFallback) {
     return;
   }
 
-  let activeTab;
-
-  try {
-    [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  } catch (error) {
-    onFallback();
-    return;
-  }
+  const activeTab = await getActiveTab();
 
   if (!activeTab || !activeTab.id) {
     onFallback();
@@ -161,19 +227,7 @@ async function getActivePageDetails(onSuccess, onFallback) {
 
   chrome.tabs.sendMessage(activeTab.id, { type: "GET_PAGE_DETAILS" }, (response) => {
     if (chrome.runtime.lastError || !response) {
-      if (isPdfTab(activeTab)) {
-        getPdfDetailsFromBackground(activeTab, onSuccess, onFallback);
-        return;
-      }
-
-      if (activeTab.url) {
-        onSuccess({
-          sourceDetails: getFallbackDetailsFromTab(activeTab),
-          selectedText: ""
-        });
-      } else {
-        onFallback();
-      }
+      onFallback();
       return;
     }
 
@@ -188,6 +242,9 @@ window.AutoCiteMetadata = {
   canUseChromeTabs,
   sendMessageToActiveTab,
   getActivePageDetails,
-  scanUrlDetails
+  scanUrlDetails,
+  getActiveTabContext,
+  useActiveTab,
+  getTargetTabId
 };
 })();

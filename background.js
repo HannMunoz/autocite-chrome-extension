@@ -7,6 +7,9 @@ const SIDEBAR_STATE_CLOSED = "closed";
 const SIDEBAR_STATE_DISMISSED = "dismissed";
 const VALID_SIDEBAR_STATES = new Set(["open", "minimized", "closed", "dismissed"]);
 const tabSidebarStates = new Map();
+let globalSidebarState = SIDEBAR_STATE_CLOSED;
+let fallbackSidebarWindowId = null;
+let fallbackSidebarTabId = null;
 const MAX_TEXT_LENGTH = 100000;
 const MAX_FIELD_LENGTH = 2000;
 const SENSITIVE_QUERY_PARAMETERS = [
@@ -39,6 +42,9 @@ async function initializeSidebarState() {
 
     if (!VALID_SIDEBAR_STATES.has(result[SIDEBAR_STATE_KEY])) {
       await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: SIDEBAR_STATE_CLOSED });
+      globalSidebarState = SIDEBAR_STATE_CLOSED;
+    } else {
+      globalSidebarState = result[SIDEBAR_STATE_KEY];
     }
   } catch (error) {
     // Sidebar state can recover on the next user action; avoid surfacing a
@@ -630,17 +636,96 @@ function canInjectIntoTab(tab) {
   return Boolean(tab && typeof tab.id === "number" && /^https?:\/\//i.test(tab.url || ""));
 }
 
+function getBrowserBrand() {
+  const userAgentData = self.navigator && self.navigator.userAgentData;
+  const brands = userAgentData && Array.isArray(userAgentData.brands) ? userAgentData.brands : [];
+  const brandNames = brands.map((brand) => String(brand.brand || "").toLowerCase()).join(" ");
+  const userAgent = String(self.navigator && self.navigator.userAgent || "").toLowerCase();
+  const browserText = `${brandNames} ${userAgent}`;
+
+  if (browserText.includes("edg")) {
+    return "Microsoft Edge";
+  }
+
+  if (browserText.includes("opr") || browserText.includes("opera")) {
+    return "Opera";
+  }
+
+  if (browserText.includes("brave")) {
+    return "Brave";
+  }
+
+  if (browserText.includes("chrome") || browserText.includes("chromium")) {
+    return "Chromium";
+  }
+
+  return "this Chromium browser";
+}
+
+function canUseSidePanel() {
+  return Boolean(chrome.sidePanel && typeof chrome.sidePanel.open === "function");
+}
+
+function getSidebarUrl(tabId) {
+  const query = typeof tabId === "number" ? `?tabId=${encodeURIComponent(String(tabId))}` : "";
+  return chrome.runtime.getURL(`sidebar.html${query}`);
+}
+
+async function openFallbackSidebarWindow(tab) {
+  if (!tab || typeof tab.id !== "number" || !chrome.windows || typeof chrome.windows.create !== "function") {
+    console.error("[AutoCite] Sidebar window fallback is unavailable in this browser.");
+    return false;
+  }
+
+  const width = 430;
+  const height = 760;
+  try {
+    if (typeof fallbackSidebarWindowId === "number" && chrome.windows.remove) {
+      chrome.windows.remove(fallbackSidebarWindowId, () => {
+        const ignoredError = chrome.runtime.lastError;
+      });
+    }
+
+    const sidebarWindow = await chrome.windows.create({
+      url: getSidebarUrl(tab.id),
+      type: "popup",
+      width,
+      height,
+      focused: true
+    });
+
+    fallbackSidebarWindowId = sidebarWindow && typeof sidebarWindow.id === "number" ? sidebarWindow.id : null;
+    fallbackSidebarTabId = tab.id;
+    await injectContentScript(tab);
+    await setTabSidebarState(tab.id, SIDEBAR_STATE_OPEN);
+    notifyActiveTabChanged(tab);
+    console.info(`[AutoCite] Opened AutoCite in a popup window because the Side Panel API is unavailable in ${getBrowserBrand()}.`);
+    return true;
+  } catch (error) {
+    console.error("[AutoCite] Failed to open AutoCite fallback window.", error);
+    return false;
+  }
+}
+
+async function pingContentScript(tabId) {
+  if (typeof tabId !== "number") {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type: "AUTOCITE_PING" }, (response) => {
+      const ignoredError = chrome.runtime.lastError;
+      resolve(Boolean(response && response.ready));
+    });
+  });
+}
+
 async function injectContentScript(tab) {
   if (!canInjectIntoTab(tab)) {
     return false;
   }
 
-  const alreadyInjected = await new Promise((resolve) => {
-    chrome.tabs.sendMessage(tab.id, { type: "AUTOCITE_PING" }, (response) => {
-      const ignoredError = chrome.runtime.lastError;
-      resolve(Boolean(response && response.ready));
-    });
-  });
+  const alreadyInjected = await pingContentScript(tab.id);
 
   if (alreadyInjected) {
     return true;
@@ -661,7 +746,7 @@ async function injectContentScript(tab) {
 }
 
 function getTabSidebarState(tabId) {
-  return tabSidebarStates.get(tabId) || SIDEBAR_STATE_CLOSED;
+  return tabSidebarStates.get(tabId) || globalSidebarState || SIDEBAR_STATE_CLOSED;
 }
 
 function sendStateToTab(tabId, sidebarState) {
@@ -678,6 +763,8 @@ function sendStateToTab(tabId, sidebarState) {
 }
 
 async function setTabSidebarState(tabId, sidebarState) {
+  globalSidebarState = sidebarState;
+
   if (typeof tabId === "number") {
     tabSidebarStates.set(tabId, sidebarState);
     sendStateToTab(tabId, sidebarState);
@@ -686,7 +773,15 @@ async function setTabSidebarState(tabId, sidebarState) {
   await chrome.storage.local.set({ [SIDEBAR_STATE_KEY]: sidebarState });
 }
 
-async function getActiveTab() {
+async function getActiveTab(tabId = null) {
+  if (typeof tabId === "number" && chrome.tabs && chrome.tabs.get) {
+    try {
+      return await chrome.tabs.get(tabId);
+    } catch (error) {
+      return null;
+    }
+  }
+
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     return activeTab || null;
@@ -708,20 +803,39 @@ async function getMessageTab(message, sender) {
 }
 
 async function openAutoCiteSidebar(tab) {
-  if (!tab || typeof tab.id !== "number" || !chrome.sidePanel || !chrome.sidePanel.open) {
-    console.error("[AutoCite] Side Panel API is unavailable for this tab.");
+  if (!tab || typeof tab.id !== "number") {
     return false;
   }
 
+  if (!canUseSidePanel()) {
+    return openFallbackSidebarWindow(tab);
+  }
+
   try {
-    await chrome.sidePanel.open({ tabId: tab.id });
+    await chrome.sidePanel.open({ windowId: tab.windowId });
     await injectContentScript(tab);
     await setTabSidebarState(tab.id, SIDEBAR_STATE_OPEN);
+    notifyActiveTabChanged(tab);
     return true;
   } catch (error) {
-    console.error("[AutoCite] Failed to open sidebar.", error);
+    console.warn("[AutoCite] Failed to open native side panel; trying popup fallback.", error);
+    return openFallbackSidebarWindow(tab);
+  }
+}
+
+async function connectAutoCiteToTab(tab) {
+  if (!tab || typeof tab.id !== "number") {
     return false;
   }
+
+  const connected = await injectContentScript(tab);
+
+  if (connected) {
+    await setTabSidebarState(tab.id, SIDEBAR_STATE_OPEN);
+  }
+
+  notifyActiveTabChanged(tab);
+  return connected;
 }
 
 async function closeAutoCiteSidebar(tab, { dismissed = false } = {}) {
@@ -732,6 +846,15 @@ async function closeAutoCiteSidebar(tab, { dismissed = false } = {}) {
     chrome.runtime.sendMessage({ type: "AUTOCITE_CLOSE_SIDEBAR" }, () => {
       const ignoredError = chrome.runtime.lastError;
     });
+
+    if (typeof fallbackSidebarWindowId === "number" && chrome.windows && chrome.windows.remove) {
+      chrome.windows.remove(fallbackSidebarWindowId, () => {
+        const ignoredError = chrome.runtime.lastError;
+      });
+      fallbackSidebarWindowId = null;
+      fallbackSidebarTabId = null;
+    }
+
     return true;
   } catch (error) {
     console.error("[AutoCite] Failed to close sidebar.", error);
@@ -751,6 +874,22 @@ async function toggleAutoCiteSidebar(tab) {
   return openAutoCiteSidebar(tab);
 }
 
+async function handleActionClicked(tab) {
+  if (!tab || typeof tab.id !== "number") {
+    return false;
+  }
+
+  if (globalSidebarState === SIDEBAR_STATE_OPEN) {
+    if (await pingContentScript(tab.id)) {
+      return closeAutoCiteSidebar(tab);
+    }
+
+    return connectAutoCiteToTab(tab);
+  }
+
+  return openAutoCiteSidebar(tab);
+}
+
 function isValidCopiedSource(value) {
   return Boolean(
     value &&
@@ -763,20 +902,106 @@ function isValidCopiedSource(value) {
 
 initializeSidebarState();
 
+async function getActiveTabContext(tab = null, tabId = null) {
+  const activeTab = tab || await getActiveTab(tabId);
+
+  if (!activeTab || typeof activeTab.id !== "number") {
+    return {
+      connected: false,
+      canAccess: false,
+      reason: "No active tab is available."
+    };
+  }
+
+  const rawTabUrl = activeTab.url || "";
+  const tabUrl = sanitizeUrl(rawTabUrl);
+  const looksLikeRestrictedPage = /^(chrome|edge|brave|vivaldi|opera|about):/i.test(rawTabUrl) ||
+    /^https:\/\/chrome\.google\.com\/webstore/i.test(rawTabUrl) ||
+    /^https:\/\/chromewebstore\.google\.com\//i.test(rawTabUrl);
+  const mayNeedPermission = !rawTabUrl || !tabUrl;
+  const isWebPage = canInjectIntoTab(activeTab);
+  const context = {
+    tabId: activeTab.id,
+    title: sanitizeText(activeTab.title || ""),
+    url: tabUrl,
+    hostname: getWebsiteFromUrl(tabUrl),
+    canAccess: isWebPage || mayNeedPermission,
+    connected: false,
+    reason: isWebPage || mayNeedPermission
+      ? "Select Connect or click the AutoCite toolbar icon to use this tab."
+      : "AutoCite can cite regular http and https pages."
+  };
+
+  if (looksLikeRestrictedPage) {
+    context.canAccess = false;
+    context.reason = "AutoCite cannot access this browser page. You can still enter details manually.";
+    return context;
+  }
+
+  if (!isWebPage) {
+    return context;
+  }
+
+  context.connected = await pingContentScript(activeTab.id);
+  context.reason = context.connected ? "" : "Select Connect or click the AutoCite toolbar icon to use this tab.";
+  return context;
+}
+
+function notifyActiveTabChanged(tab = null) {
+  getActiveTabContext(tab).then((activeTabContext) => {
+    chrome.runtime.sendMessage({
+      type: "AUTOCITE_ACTIVE_TAB_CHANGED",
+      activeTabContext
+    }, () => {
+      const ignoredError = chrome.runtime.lastError;
+    });
+  });
+}
+
 chrome.action.onClicked.addListener((tab) => {
-  toggleAutoCiteSidebar(tab);
+  handleActionClicked(tab);
 });
 
 if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     tabSidebarStates.delete(tabId);
+
+    if (fallbackSidebarTabId === tabId) {
+      fallbackSidebarTabId = null;
+      fallbackSidebarWindowId = null;
+    }
+  });
+}
+
+if (chrome.windows && chrome.windows.onRemoved) {
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (fallbackSidebarWindowId === windowId) {
+      const closedTabId = fallbackSidebarTabId;
+      fallbackSidebarWindowId = null;
+      fallbackSidebarTabId = null;
+      setTabSidebarState(closedTabId, SIDEBAR_STATE_CLOSED);
+    }
+  });
+}
+
+if (chrome.tabs && chrome.tabs.onActivated) {
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    chrome.tabs.get(activeInfo.tabId, (tab) => {
+      const ignoredError = chrome.runtime.lastError;
+
+      if (globalSidebarState === SIDEBAR_STATE_OPEN && tab) {
+        sendStateToTab(tab.id, SIDEBAR_STATE_OPEN);
+        notifyActiveTabChanged(tab);
+      }
+    });
   });
 }
 
 if (chrome.tabs && chrome.tabs.onUpdated) {
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === "loading" && getTabSidebarState(tabId) === SIDEBAR_STATE_OPEN) {
-      tabSidebarStates.set(tabId, SIDEBAR_STATE_CLOSED);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === "complete" && globalSidebarState === SIDEBAR_STATE_OPEN && tab && tab.active) {
+      sendStateToTab(tabId, SIDEBAR_STATE_OPEN);
+      notifyActiveTabChanged(tab);
     }
   });
 }
@@ -851,6 +1076,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SCAN_URL_DETAILS") {
     scanUrlDetails(message.url).then((sourceDetails) => {
       sendResponse({ sourceDetails });
+    });
+
+    return true;
+  }
+
+  if (message.type === "GET_ACTIVE_TAB_CONTEXT") {
+    getActiveTabContext(null, message.tabId).then((activeTabContext) => {
+      sendResponse({ activeTabContext });
+    });
+
+    return true;
+  }
+
+  if (message.type === "USE_ACTIVE_TAB") {
+    getActiveTab(message.tabId).then(async (tab) => {
+      const connected = await connectAutoCiteToTab(tab);
+      const activeTabContext = await getActiveTabContext(tab);
+      sendResponse({ connected, activeTabContext });
     });
 
     return true;

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AutoCite",
-  "version": "1.0.1",
-  "description": "A student-friendly sidebar for collecting source details and drafting citations.",
+  "name": "AutoCite: Free Citation Generator",
+  "version": "1.0.4",
+  "description": "Copy source info, organize the details, and draft citations without leaving the page.",
   "icons": {
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
@@ -12,7 +12,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "clipboardRead"
+    "clipboardRead",
+    "clipboardWrite"
   ],
   "background": {
     "service_worker": "background.js"
@@ -28,6 +29,6 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "AutoCite"
+    "default_title": "AutoCite: Free Citation Generator"
   }
 }

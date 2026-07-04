@@ -14,6 +14,7 @@ const AUTOCITE_LEGACY_ELEMENT_IDS = [
 ];
 const SIDEBAR_STATE_CLOSED = "closed";
 const SIDEBAR_STATE_DISMISSED = "dismissed";
+const SIDEBAR_STATE_KEY = "sidebarState";
 const DEBUG_AUTOCITE = false;
 const DOI_PATTERN = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
 
@@ -670,7 +671,23 @@ function applySidebarState(sidebarState) {
 }
 
 function loadSidebarState() {
-  applySidebarState(SIDEBAR_STATE_CLOSED);
+  if (!canUseChromeRuntime() || !chrome.storage || !chrome.storage.local) {
+    applySidebarState(SIDEBAR_STATE_CLOSED);
+    return;
+  }
+
+  chrome.storage.local.get([SIDEBAR_STATE_KEY], (result) => {
+    try {
+      if (chrome.runtime.lastError) {
+        applySidebarState(SIDEBAR_STATE_CLOSED);
+        return;
+      }
+
+      applySidebarState(result[SIDEBAR_STATE_KEY] || SIDEBAR_STATE_CLOSED);
+    } catch (error) {
+      invalidateExtensionContext();
+    }
+  });
 }
 
 function startExtensionContextCheck() {
@@ -722,7 +739,12 @@ try {
       if (message.type === "GET_PAGE_DETAILS") {
         sendResponse({
           sourceDetails: getSourceDetails(),
-          selectedText: window.getSelection().toString() || latestSelectedText
+          selectedText: window.getSelection().toString() || latestSelectedText,
+          pageContext: {
+            title: document.title || "",
+            url: window.location.href || "",
+            captureEnabled: autociteCaptureEnabled
+          }
         });
       }
     });
@@ -765,6 +787,18 @@ document.addEventListener("copy", (event) => {
     saveCopiedSource(selectedText);
   }
 });
+
+try {
+  if (!extensionContextInvalid && typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === "local" && changes[SIDEBAR_STATE_KEY]) {
+        applySidebarState(changes[SIDEBAR_STATE_KEY].newValue || SIDEBAR_STATE_CLOSED);
+      }
+    });
+  }
+} catch (error) {
+  invalidateExtensionContext();
+}
 
 function initializeAutoCiteUi() {
   cleanupAutoCiteUi({ allInstances: true });

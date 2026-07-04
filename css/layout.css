@@ -1,5 +1,6 @@
 .app-shell {
-  min-width: 300px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   padding: 24px 17px 78px;
 }
@@ -34,6 +35,17 @@
 .heading-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.copied-text-actions {
+  align-items: flex-start;
+  flex-direction: row;
+  width: auto;
+}
+
+.copied-text-actions button {
+  width: auto;
+  white-space: nowrap;
 }
 
 .panel {
@@ -85,6 +97,45 @@
 .section-heading h2,
 .section-heading h3 {
   margin: 0;
+}
+
+.tab-connection {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: 14px;
+  border: 1px solid #d4e0ef;
+  border-radius: var(--radius-md);
+  background: var(--info-bg);
+  color: var(--info-text);
+  padding: 12px 13px;
+}
+
+.tab-connection strong {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tab-connection p {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tab-connection.is-warning {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.tab-connection.is-connected {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 #citePanel .panel {
@@ -145,6 +196,10 @@
 
 .source-field {
   min-width: 0;
+}
+
+.is-hidden {
+  display: none !important;
 }
 
 .source-field.is-hidden {
@@ -511,6 +566,28 @@
   color: var(--danger);
 }
 
+@media (max-width: 430px) {
+  .panel-header--row,
+  .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .heading-actions,
+  .copied-text-actions {
+    width: 100%;
+  }
+
+  .copied-text-actions {
+    flex-direction: column;
+  }
+
+  .heading-actions button,
+  .copied-text-actions button {
+    width: 100%;
+  }
+}
+
 @media (max-width: 360px) {
   .app-shell {
     padding: var(--space-md) var(--space-sm) calc(var(--space-lg) + 48px);
@@ -520,8 +597,7 @@
     padding: var(--space-md);
   }
 
-  .section-heading,
-  .panel-header--row,
+  .tab-connection,
   .heading-actions {
     align-items: stretch;
     flex-direction: column;
