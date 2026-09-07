@@ -1,10 +1,12 @@
 // Copy helpers.
 (() => {
 
-async function copyText(text, label, showMessage) {
+async function copyText(text, label, showMessage, options = {}) {
   const safeText = typeof text === "string" ? text : "";
   const safeLabel = typeof label === "string" && label.trim() ? label.trim() : "content";
   const notify = typeof showMessage === "function" ? showMessage : () => {};
+  const html = typeof options.html === "string" ? options.html : "";
+  const rtf = typeof options.rtf === "string" ? options.rtf : "";
 
   if (!safeText.trim()) {
     notify(`No ${safeLabel} yet.`, "warning");
@@ -12,7 +14,18 @@ async function copyText(text, label, showMessage) {
   }
 
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (html && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+      const clipboardData = {
+        "text/plain": new Blob([safeText], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" })
+      };
+
+      if (rtf && ClipboardItem.supports && ClipboardItem.supports("text/rtf")) {
+        clipboardData["text/rtf"] = new Blob([rtf], { type: "text/rtf" });
+      }
+
+      await navigator.clipboard.write([new ClipboardItem(clipboardData)]);
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(safeText);
     } else {
       copyTextWithFallback(safeText);
@@ -22,29 +35,6 @@ async function copyText(text, label, showMessage) {
   }
 
   notify("Copied!", "success");
-}
-
-async function readClipboardText(showMessage) {
-  const notify = typeof showMessage === "function" ? showMessage : () => {};
-
-  if (!navigator.clipboard || !navigator.clipboard.readText) {
-    notify("Clipboard paste is not available in this browser.", "warning");
-    return "";
-  }
-
-  try {
-    const clipboardText = await navigator.clipboard.readText();
-
-    if (!clipboardText.trim()) {
-      notify("Clipboard is empty.", "warning");
-      return "";
-    }
-
-    return clipboardText;
-  } catch (error) {
-    notify("Clipboard access was blocked. Paste with Ctrl+V instead.", "warning");
-    return "";
-  }
 }
 
 function copyTextWithFallback(text) {
@@ -76,7 +66,6 @@ function buildCopiedTextWithInTextCitation(copiedText, inTextCitation) {
 
 window.AutoCiteCopyActions = {
   copyText,
-  readClipboardText,
   buildCopiedTextWithInTextCitation
 };
 })();

@@ -141,6 +141,19 @@ textarea::placeholder {
   font-weight: 400;
 }
 
+select {
+  min-height: 48px;
+  padding-right: 42px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(255, 254, 250, 0.98);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23486c54' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 18px center;
+  background-repeat: no-repeat;
+  background-size: 15px 15px;
+  cursor: pointer;
+}
+
 input[type="checkbox"] {
   width: 16px;
   height: 16px;
@@ -161,7 +174,7 @@ textarea {
 input:hover,
 select:hover,
 textarea:hover {
-  background: #ffffff;
+  background-color: #ffffff;
   border-color: #bfd0bc;
 }
 
@@ -169,7 +182,7 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--primary);
-  background: #ffffff;
+  background-color: #ffffff;
   box-shadow: 0 0 0 3px var(--primary-glow);
   outline: none;
 }

@@ -35,6 +35,7 @@ const PDF_METADATA_BYTES = 1024 * 1024;
 const HTML_METADATA_BYTES = 512 * 1024;
 const METADATA_FETCH_TIMEOUT_MS = 8000;
 const DOI_PATTERN = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
+const CROSSREF_WORKS_API = "https://api.crossref.org/works";
 
 async function initializeSidebarState() {
   try {
@@ -149,8 +150,54 @@ function sanitizeSourceDetails(details) {
   };
 }
 
+function mergeSourceDetails(baseDetails, overrideDetails) {
+  const base = sanitizeSourceDetails(baseDetails);
+  const override = sanitizeSourceDetails(overrideDetails);
+
+  return sanitizeSourceDetails({
+    ...base,
+    ...Object.fromEntries(Object.entries(override).filter(([, value]) => Boolean(value))),
+    sourceType: override.sourceType || base.sourceType || "website",
+    accessDate: base.accessDate || override.accessDate || new Date().toISOString().slice(0, 10)
+  });
+}
+
 function isPdfUrl(value) {
   return /\.pdf(?:[?#]|$)/i.test(value || "");
+}
+
+function isSecureWebUrl(value) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch (error) {
+    return false;
+  }
+}
+
+function getArticleUrlFromPdfUrl(value) {
+  const safeUrl = sanitizeUrl(value);
+
+  if (!safeUrl) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(safeUrl);
+
+    if (/\.pdf$/i.test(parsedUrl.pathname)) {
+      parsedUrl.pathname = parsedUrl.pathname.replace(/\.pdf$/i, "");
+      return parsedUrl.href;
+    }
+  } catch (error) {
+    return "";
+  }
+
+  return "";
+}
+
+function hasUsefulCitationDetails(details) {
+  const source = sanitizeSourceDetails(details);
+  return Boolean(source.title && (source.author || source.publisher || source.journalName || source.publishedDate));
 }
 
 function getWebsiteFromUrl(value) {
@@ -262,17 +309,29 @@ function getMetaMap(htmlText) {
     ).toLowerCase();
     const content = getHtmlAttribute(tagText, "content");
 
-    if (key && content && !meta.has(key)) {
-      meta.set(key, content);
+    if (key && content) {
+      const values = meta.get(key) || [];
+      values.push(content);
+      meta.set(key, values);
     }
   }
 
   return meta;
 }
 
+function getMetaValues(meta, key) {
+  const values = meta.get(key.toLowerCase());
+
+  if (!values) {
+    return [];
+  }
+
+  return Array.isArray(values) ? values : [values];
+}
+
 function pickMeta(meta, keys) {
   for (const key of keys) {
-    const value = meta.get(key.toLowerCase());
+    const value = getMetaValues(meta, key).find(Boolean);
 
     if (value) {
       return value;
@@ -280,6 +339,16 @@ function pickMeta(meta, keys) {
   }
 
   return "";
+}
+
+function pickAllMeta(meta, keys) {
+  const values = [];
+
+  keys.forEach((key) => {
+    values.push(...getMetaValues(meta, key));
+  });
+
+  return values.filter(Boolean);
 }
 
 function getHtmlTitle(htmlText) {
@@ -309,6 +378,162 @@ function readStructuredName(value) {
   }
 
   return [];
+}
+
+function getCrossrefDate(dateParts) {
+  const parts = Array.isArray(dateParts && dateParts["date-parts"]) ? dateParts["date-parts"][0] : null;
+
+  if (!Array.isArray(parts) || !parts.length) {
+    return "";
+  }
+
+  return parts.filter(Boolean).join("-");
+}
+
+function getCrossrefAuthorName(author) {
+  if (!author || typeof author !== "object") {
+    return "";
+  }
+
+  return [author.given, author.family].filter(Boolean).join(" ") || author.name || "";
+}
+
+function detailsFromCrossrefWork(work) {
+  if (!work || typeof work !== "object") {
+    return null;
+  }
+
+  const title = Array.isArray(work.title) ? work.title.find(Boolean) : work.title;
+  const journalName = Array.isArray(work["container-title"]) ? work["container-title"].find(Boolean) : work["container-title"];
+  const publishedDate = getCrossrefDate(work.published) ||
+    getCrossrefDate(work["published-print"]) ||
+    getCrossrefDate(work["published-online"]) ||
+    getCrossrefDate(work.created);
+  const doi = cleanDoi(work.DOI || work.doi || "");
+  const authors = Array.isArray(work.author) ? work.author.map(getCrossrefAuthorName).filter(Boolean) : [];
+
+  return sanitizeSourceDetails({
+    sourceType: journalName ? "journal" : "pdf",
+    title: sanitizeText(title),
+    website: "",
+    publisher: sanitizeText(work.publisher),
+    journalName: sanitizeText(journalName),
+    volume: sanitizeText(work.volume, 100),
+    issue: sanitizeText(work.issue, 100),
+    pages: sanitizeText(work.page, 100),
+    url: doi || sanitizeUrl(work.URL),
+    author: authors.join("; "),
+    publishedDate,
+    accessDate: new Date().toISOString().slice(0, 10)
+  });
+}
+
+function normalizeLookupTitle(title) {
+  return sanitizeText(title, 500)
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleSimilarity(leftTitle, rightTitle) {
+  const leftWords = new Set(normalizeLookupTitle(leftTitle).split(" ").filter((word) => word.length > 2));
+  const rightWords = new Set(normalizeLookupTitle(rightTitle).split(" ").filter((word) => word.length > 2));
+
+  if (!leftWords.size || !rightWords.size) {
+    return 0;
+  }
+
+  const shared = Array.from(leftWords).filter((word) => rightWords.has(word)).length;
+  return shared / Math.max(leftWords.size, rightWords.size);
+}
+
+async function fetchCrossrefJson(url) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), METADATA_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json"
+      },
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.json();
+  } catch (error) {
+    console.warn("[AutoCite] Academic metadata lookup failed.", error);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function lookupCrossrefByDoi(doi) {
+  const cleanValue = cleanDoi(doi);
+
+  if (!cleanValue) {
+    return null;
+  }
+
+  const data = await fetchCrossrefJson(`${CROSSREF_WORKS_API}/${encodeURIComponent(cleanValue)}`);
+  return detailsFromCrossrefWork(data && data.message);
+}
+
+async function lookupCrossrefByTitle(title, expectedDetails = {}) {
+  const cleanTitle = sanitizeText(title, 500);
+
+  if (!cleanTitle || cleanTitle.split(/\s+/).length < 4) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    "query.title": cleanTitle,
+    rows: "5"
+  });
+  const data = await fetchCrossrefJson(`${CROSSREF_WORKS_API}?${params.toString()}`);
+  const works = data && data.message && Array.isArray(data.message.items) ? data.message.items : [];
+  const expectedYear = (sanitizeText(expectedDetails.publishedDate, 100).match(/\b(19|20)\d{2}\b/) || [])[0];
+
+  let bestWork = null;
+  let bestScore = 0;
+
+  works.forEach((work) => {
+    const workTitle = Array.isArray(work.title) ? work.title.find(Boolean) : work.title;
+    const similarity = getTitleSimilarity(cleanTitle, workTitle);
+    const workYear = (getCrossrefDate(work.published) || getCrossrefDate(work["published-print"]) || getCrossrefDate(work["published-online"])).match(/\b(19|20)\d{2}\b/);
+    const yearBonus = expectedYear && workYear && workYear[0] === expectedYear ? 0.12 : 0;
+    const authorBonus = expectedDetails.author && Array.isArray(work.author) && work.author.some((author) => {
+      return normalizeLookupTitle(expectedDetails.author).includes(normalizeLookupTitle(author.family || author.name || ""));
+    }) ? 0.08 : 0;
+    const score = similarity + yearBonus + authorBonus;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestWork = work;
+    }
+  });
+
+  return bestScore >= 0.55 ? detailsFromCrossrefWork(bestWork) : null;
+}
+
+async function lookupAcademicDetails(details) {
+  const source = sanitizeSourceDetails(details);
+  const doiDetails = source.url && extractDoi(source.url) ? await lookupCrossrefByDoi(source.url) : null;
+
+  if (doiDetails) {
+    return mergeSourceDetails(source, doiDetails);
+  }
+
+  const titleDetails = await lookupCrossrefByTitle(source.title, source);
+  return titleDetails ? mergeSourceDetails(source, titleDetails) : source;
 }
 
 function getJsonLdObjects(htmlText) {
@@ -364,6 +589,15 @@ function extractHtmlDetailsFromText(htmlText, url) {
   const jsonLdObjects = getJsonLdObjects(htmlText);
   const jsonLdAuthors = readStructuredName(getJsonLdField(jsonLdObjects, ["author", "creator"]));
   const jsonLdPublisher = readStructuredName(getJsonLdField(jsonLdObjects, ["publisher"])).find(Boolean);
+  const metaAuthors = pickAllMeta(meta, [
+    "citation_author",
+    "author",
+    "article:author",
+    "article:author:name",
+    "byl",
+    "dc.creator",
+    "DC.Creator"
+  ]);
   const doi = extractDoi(
     pickMeta(meta, ["citation_doi", "dc.identifier", "DC.Identifier", "prism.doi", "doi"]) ||
     sanitizeText(getJsonLdField(jsonLdObjects, ["doi", "identifier", "sameAs", "url"])) ||
@@ -388,7 +622,7 @@ function extractHtmlDetailsFromText(htmlText, url) {
       pickMeta(meta, ["citation_lastpage", "prism.endingPage"])
     ].filter(Boolean).join("-"),
     url: doi || url,
-    author: pickMeta(meta, ["citation_author", "author", "article:author", "article:author:name", "dc.creator", "DC.Creator"]) ||
+    author: metaAuthors.join("; ") ||
       jsonLdAuthors.join("; "),
     publishedDate: cleanDate(
       pickMeta(meta, [
@@ -404,9 +638,12 @@ function extractHtmlDetailsFromText(htmlText, url) {
         "publishdate",
         "publish-date",
         "timestamp",
-        "datePublished"
+        "datePublished",
+        "datepublished",
+        "article:modified_time",
+        "og:updated_time"
       ]) ||
-      sanitizeText(getJsonLdField(jsonLdObjects, ["datePublished", "dateCreated"]), 100)
+      sanitizeText(getJsonLdField(jsonLdObjects, ["datePublished", "dateCreated", "dateModified"]), 100)
     ),
     accessDate: new Date().toISOString().slice(0, 10)
   });
@@ -433,7 +670,8 @@ async function fetchLimitedText(url, maxBytes, headers = {}) {
       const buffer = await response.arrayBuffer();
       return {
         text: new TextDecoder("latin1").decode(buffer.slice(0, maxBytes)),
-        contentType: response.headers.get("content-type") || ""
+        contentType: response.headers.get("content-type") || "",
+        responseUrl: response.url || url
       };
     }
 
@@ -469,7 +707,8 @@ async function fetchLimitedText(url, maxBytes, headers = {}) {
 
     return {
       text: new TextDecoder("latin1").decode(buffer),
-      contentType: response.headers.get("content-type") || ""
+      contentType: response.headers.get("content-type") || "",
+      responseUrl: response.url || url
     };
   } finally {
     clearTimeout(timeoutId);
@@ -495,6 +734,285 @@ function findXmpValue(pdfText, tagName) {
   return simpleMatch ? decodeXmlText(simpleMatch[1]) : "";
 }
 
+function getReadablePdfLines(pdfText) {
+  const literalText = Array.from(pdfText.matchAll(/\((?:\\.|[^\\)]){4,}\)/g))
+    .map((match) => decodePdfString(match[0]));
+  const textOperatorLines = getPdfTextOperatorLines(pdfText);
+  const plainText = pdfText
+    .replace(/[^\x20-\x7E\n\r]+/g, " ")
+    .split(/[\r\n]+/)
+    .map((line) => sanitizeText(line, 220))
+    .filter((line) => /[A-Za-z]{3}/.test(line));
+
+  return [...textOperatorLines, ...literalText, ...plainText]
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => isUsefulPdfLine(line))
+    .slice(0, 140);
+}
+
+async function getReadablePdfLinesWithInflatedStreams(pdfText) {
+  const inflatedText = await getInflatedPdfStreamText(pdfText);
+  const inflatedLines = inflatedText ? getReadablePdfLines(inflatedText) : [];
+  const seen = new Set();
+  const candidateLines = inflatedLines.length
+    ? inflatedLines
+    : (/\/FlateDecode\b/i.test(pdfText) ? [] : getReadablePdfLines(pdfText));
+
+  return candidateLines
+    .filter((line) => {
+      const key = line.toLowerCase();
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 180);
+}
+
+async function getInflatedPdfStreamText(pdfText) {
+  if (typeof DecompressionStream !== "function" || !/\/FlateDecode\b/i.test(pdfText)) {
+    return "";
+  }
+
+  const chunks = [];
+  const streamPattern = /<<(?:[\s\S]{0,1200}?\/FlateDecode[\s\S]{0,1200}?)>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/gi;
+  let match;
+
+  while ((match = streamPattern.exec(pdfText)) && chunks.length < 8) {
+    const inflated = await inflatePdfStreamText(match[1]);
+
+    if (inflated && getPdfTextOperatorLines(inflated).some(isUsefulPdfLine)) {
+      chunks.push(inflated);
+    }
+  }
+
+  return chunks.join("\n");
+}
+
+async function inflatePdfStreamText(streamText) {
+  try {
+    const bytes = new Uint8Array(streamText.length);
+
+    for (let index = 0; index < streamText.length; index += 1) {
+      bytes[index] = streamText.charCodeAt(index) & 0xff;
+    }
+
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+    const buffer = await new Response(stream).arrayBuffer();
+    return new TextDecoder("latin1").decode(buffer);
+  } catch (error) {
+    return "";
+  }
+}
+
+function getPdfTextOperatorLines(pdfText) {
+  const firstPageText = getFirstPagePdfText(pdfText);
+  const lines = [];
+  const textBlocks = firstPageText.match(/BT[\s\S]*?ET/g) || [];
+
+  textBlocks.forEach((block) => {
+    const values = [];
+    const arrayPattern = /\[((?:\s*(?:\((?:\\.|[^\\)])*\)|<[0-9a-f\s]+>|-?\d+(?:\.\d+)?)\s*)+)\]\s*TJ/gim;
+    const stringPattern = /(\((?:\\.|[^\\)])*\)|<[0-9a-f\s]+>)\s*(?:Tj|'|")/gim;
+    let match;
+
+    while ((match = arrayPattern.exec(block))) {
+      values.push(getPdfStringTokens(match[1]).map(decodePdfString).join(""));
+    }
+
+    while ((match = stringPattern.exec(block))) {
+      values.push(decodePdfString(match[1]));
+    }
+
+    const joined = values.join(" ").replace(/\s+/g, " ").trim();
+
+    if (joined) {
+      lines.push(joined);
+    }
+  });
+
+  return lines;
+}
+
+function getFirstPagePdfText(pdfText) {
+  const secondPageMatch = pdfText.slice(1000).match(/\/Type\s*\/Page\b/i);
+  const endIndex = secondPageMatch ? secondPageMatch.index + 1000 : Math.min(pdfText.length, PDF_METADATA_BYTES);
+  return pdfText.slice(0, Math.max(endIndex, Math.min(pdfText.length, 350000)));
+}
+
+function getPdfStringTokens(value) {
+  return Array.from(String(value || "").matchAll(/\((?:\\.|[^\\)])*\)|<[0-9a-f\s]+>/gi)).map((match) => match[0]);
+}
+
+function isUsefulPdfLine(line) {
+  return line.length >= 4 &&
+    line.length <= 260 &&
+    /[A-Za-z]{3}/.test(line) &&
+    hasReadablePdfTextQuality(line) &&
+    !/<<|>>|\/(?:Type|Subtype|BaseFont|Encoding|FontDescriptor|FirstChar|LastChar|Widths)\b/i.test(line) &&
+    !/^(obj|endobj|stream|endstream|xref|trailer|startxref|\d+\s+\d+\s+obj)$/i.test(line) &&
+    !/^\/(?:Type|Filter|Length|Subtype|Resources|Font|ProcSet)\b/i.test(line);
+}
+
+function hasReadablePdfTextQuality(line) {
+  const value = String(line || "").trim();
+  const naturalTextCharacters = (value.match(/[A-Za-z0-9\s.,;:!?'"()&/-]/g) || []).length;
+  const letterCharacters = (value.match(/[A-Za-z]/g) || []).length;
+
+  return Boolean(value) &&
+    naturalTextCharacters / value.length >= 0.85 &&
+    letterCharacters / value.length >= 0.45;
+}
+
+function isPdfImageBased(pdfText, lines) {
+  return lines.length < 4 && /\/Subtype\s*\/Image\b/i.test(pdfText);
+}
+
+function isBadPdfMetadataTitle(title, url) {
+  const cleanTitle = cleanPdfTitle(title, url).toLowerCase();
+  const fileTitle = cleanPdfTitle("", url).toLowerCase();
+
+  return !cleanTitle ||
+    cleanTitle === fileTitle ||
+    /^(untitled|document|article|full text|download|view|pdf|microsoft word|converted|main)$/i.test(cleanTitle) ||
+    /\.(docx?|pptx?|xlsx?)$/i.test(cleanTitle);
+}
+
+function normalizePdfCandidateLine(line) {
+  return sanitizeText(line, 260)
+    .replace(/^\s*(title|paper|article)\s*[:.-]\s*/i, "")
+    .replace(/\s*\|\s*.*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSectionHeading(line) {
+  return /^(abstract|summary|introduction|keywords?|references|contents|appendix|acknowledg|background|methods?|results?|discussion|conclusion)\b/i.test(line);
+}
+
+function isLikelyTitleLine(line) {
+  const value = normalizePdfCandidateLine(line);
+  const words = value.split(/\s+/).filter(Boolean);
+
+  return words.length >= 4 &&
+    words.length <= 28 &&
+    /[A-Za-z]/.test(value) &&
+    hasReadablePdfTextQuality(value) &&
+    !isSectionHeading(value) &&
+    !/\b(doi|issn|isbn|copyright|creative commons|received|accepted|published|volume|vol\.|issue|pages?|university|department|conference proceedings)\b/i.test(value) &&
+    !/^https?:\/\//i.test(value);
+}
+
+function getLikelyPdfTitle(lines) {
+  const stopIndex = lines.findIndex((line) => isSectionHeading(line));
+  const titleLines = (stopIndex >= 0 ? lines.slice(0, stopIndex) : lines.slice(0, 28))
+    .map(normalizePdfCandidateLine)
+    .filter(Boolean);
+  const candidates = titleLines.filter(isLikelyTitleLine);
+
+  for (let index = 0; index < titleLines.length - 1; index += 1) {
+    const combinedTitle = titleLines.slice(index, index + 3).join(" ");
+
+    if (isLikelyTitleLine(combinedTitle)) {
+      candidates.push(combinedTitle);
+      break;
+    }
+  }
+
+  if (!candidates.length) {
+    return "";
+  }
+
+  const title = candidates.slice(0, 2).join(" ");
+  return title.length <= 260 ? title : candidates[0];
+}
+
+function cleanAuthorLine(line) {
+  return sanitizeText(line, 500)
+    .replace(/^(by|authors?)[:\s]+/i, "")
+    .replace(/\b(?:orcid|email|e-mail|corresponding author)\b.*$/i, "")
+    .replace(/\s*\d+(?:,\d+)*\s*/g, " ")
+    .replace(/\s*[*,;]\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isLikelyAuthorLine(line) {
+  const value = cleanAuthorLine(line);
+  const words = value.split(/\s+/).filter(Boolean);
+
+  if (!value || words.length < 2 || words.length > 24 || isSectionHeading(value) || !hasReadablePdfTextQuality(value)) {
+    return false;
+  }
+
+  if (/\b(abstract|university|department|institute|journal|conference|proceedings|copyright|doi|keywords?|received|accepted|published)\b/i.test(value)) {
+    return false;
+  }
+
+  return /(?:,|\band\b|;|&)/i.test(value) ||
+    /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z]\.)?\s+[A-Z][A-Za-z'.-]+(?:\s*,\s*[A-Z][A-Za-z'.-]+(?:\s+[A-Z]\.)?\s+[A-Z][A-Za-z'.-]+)*$/.test(value);
+}
+
+function getLikelyPdfAuthor(lines, title) {
+  const titleIndex = title ? lines.findIndex((line) => normalizePdfCandidateLine(line) === title || title.includes(normalizePdfCandidateLine(line))) : -1;
+  const searchStart = titleIndex >= 0 ? titleIndex + 1 : 0;
+  const abstractIndex = lines.findIndex((line, index) => index > searchStart && isSectionHeading(line));
+  const authorLines = lines.slice(searchStart, abstractIndex >= 0 ? abstractIndex : searchStart + 12)
+    .map(cleanAuthorLine)
+    .filter(isLikelyAuthorLine);
+
+  return authorLines[0] || "";
+}
+
+function getLikelyPdfJournal(lines) {
+  return lines.find((line) => {
+    return /\b(journal of|international journal|proceedings of|conference on|transactions on|symposium on|workshop on|lecture notes|arxiv|IEEE|ACM|Nature|Science)\b/i.test(line) &&
+      !isLikelyTitleLine(line);
+  }) || "";
+}
+
+function getLikelyPdfPublisher(lines) {
+  return lines.find((line) => /\b(university|press|publisher|institute|association|department|school of|IEEE|ACM|Springer|Elsevier|Wiley|Taylor\s*&\s*Francis|SAGE|Nature Publishing|MDPI|Frontiers)\b/i.test(line)) || "";
+}
+
+function getLikelyPdfDate(pdfText, lines) {
+  const priorityLine = lines.find((line) => /\b(published|publication|copyright|received|accepted|available online|proceedings)\b/i.test(line) && /\b(19|20)\d{2}\b/.test(line));
+  const priorityMatch = priorityLine ? priorityLine.match(/\b(19|20)\d{2}(?:[-/](0?[1-9]|1[0-2])(?:[-/](0?[1-9]|[12]\d|3[01]))?)?\b/) : null;
+  const dateMatch = priorityMatch || pdfText.match(/\b(19|20)\d{2}(?:[-/](0?[1-9]|1[0-2])(?:[-/](0?[1-9]|[12]\d|3[01]))?)?\b/);
+
+  return dateMatch ? cleanDate(dateMatch[0]) : "";
+}
+
+function isBadPdfMetadataAuthor(author, titlePageAuthor) {
+  const cleanAuthor = sanitizeText(author, 500);
+
+  if (/^(smart|user|administrator|admin|owner|unknown|microsoft office|adobe acrobat)$/i.test(cleanAuthor)) {
+    return true;
+  }
+
+  return Boolean(titlePageAuthor) && (!cleanAuthor || cleanAuthor.split(/\s+/).filter(Boolean).length < 2);
+}
+
+async function getPdfTitlePageHints(pdfText) {
+  const lines = await getReadablePdfLinesWithInflatedStreams(pdfText);
+  const title = getLikelyPdfTitle(lines);
+  const author = getLikelyPdfAuthor(lines, title);
+  const journalName = getLikelyPdfJournal(lines);
+  const publisher = getLikelyPdfPublisher(lines);
+
+  return {
+    title,
+    author,
+    journalName,
+    publisher,
+    publishedDate: getLikelyPdfDate(pdfText, lines),
+    imageBased: isPdfImageBased(pdfText, lines)
+  };
+}
+
 function cleanPdfDate(value) {
   const cleanValue = sanitizeText(value, 100).replace(/^D:/, "");
   const compactMatch = cleanValue.match(/^(\d{4})(\d{2})?(\d{2})?/);
@@ -511,14 +1029,21 @@ function cleanPdfDate(value) {
   return Number.isNaN(parsedDate.getTime()) ? cleanValue : parsedDate.toISOString().slice(0, 10);
 }
 
-function extractPdfDetailsFromText(pdfText, url, fallbackTitle) {
-  const title = findXmpValue(pdfText, "dc:title") || findPdfInfoValue(pdfText, "Title") || fallbackTitle;
-  const author = findXmpValue(pdfText, "dc:creator") || findPdfInfoValue(pdfText, "Author");
+async function extractPdfDetailsFromText(pdfText, url, fallbackTitle) {
+  const titlePageHints = await getPdfTitlePageHints(pdfText);
+  const metadataTitle = findXmpValue(pdfText, "dc:title") || findPdfInfoValue(pdfText, "Title");
+  const title = isBadPdfMetadataTitle(metadataTitle, url) ? titlePageHints.title || fallbackTitle : metadataTitle;
+  const metadataAuthor = findXmpValue(pdfText, "dc:creator") || findPdfInfoValue(pdfText, "Author");
+  const author = isBadPdfMetadataAuthor(metadataAuthor, titlePageHints.author) ? titlePageHints.author : metadataAuthor;
   const publisher = findXmpValue(pdfText, "dc:publisher") ||
     findPdfInfoValue(pdfText, "Publisher");
   const doi = extractDoi(
     findXmpValue(pdfText, "dc:identifier") ||
     findPdfInfoValue(pdfText, "doi") ||
+    findPdfInfoValue(pdfText, "Subject") ||
+    findPdfInfoValue(pdfText, "Keywords") ||
+    titlePageHints.title ||
+    titlePageHints.journalName ||
     pdfText.slice(0, PDF_METADATA_BYTES)
   );
   const publishedDate = cleanPdfDate(
@@ -529,34 +1054,35 @@ function extractPdfDetailsFromText(pdfText, url, fallbackTitle) {
     findPdfInfoValue(pdfText, "ModDate")
   );
 
-  return sanitizeSourceDetails({
-    sourceType: "pdf",
+  const extractedDetails = sanitizeSourceDetails({
+    sourceType: titlePageHints.journalName ? "journal" : "pdf",
     title: cleanPdfTitle(title, url),
     website: getWebsiteFromUrl(url),
-    publisher,
-    journalName: "",
+    publisher: publisher || titlePageHints.publisher,
+    journalName: titlePageHints.journalName,
     volume: "",
     issue: "",
     pages: "",
     url: doi || url,
-    author,
-    publishedDate,
+    author: author || titlePageHints.author,
+    publishedDate: publishedDate || titlePageHints.publishedDate,
     accessDate: new Date().toISOString().slice(0, 10)
   });
+
+  return lookupAcademicDetails(extractedDetails);
 }
 
 async function fetchPdfText(url) {
-  const result = await fetchLimitedText(url, PDF_METADATA_BYTES, {
+  return fetchLimitedText(url, PDF_METADATA_BYTES, {
     Range: `bytes=0-${PDF_METADATA_BYTES - 1}`
   });
-
-  return result.text;
 }
 
-async function extractPdfDetails(url, fallbackTitle = "") {
+async function extractPdfDetails(url, fallbackTitle = "", options = {}) {
   const safeUrl = sanitizeUrl(url);
+  const forcePdf = Boolean(options && options.forcePdf);
 
-  if (!safeUrl || !isPdfUrl(safeUrl)) {
+  if (!safeUrl || !isSecureWebUrl(safeUrl) || (!forcePdf && !isPdfUrl(safeUrl))) {
     return null;
   }
 
@@ -576,7 +1102,28 @@ async function extractPdfDetails(url, fallbackTitle = "") {
   });
 
   try {
-    return extractPdfDetailsFromText(await fetchPdfText(safeUrl), safeUrl, fallbackDetails.title);
+    const pdfResult = await fetchPdfText(safeUrl);
+    const responseUrl = sanitizeUrl(pdfResult.responseUrl) || safeUrl;
+
+    if (/text\/html|application\/xhtml\+xml/i.test(pdfResult.contentType) || /^\s*<!doctype html|^\s*<html\b/i.test(pdfResult.text)) {
+      return lookupAcademicDetails(extractHtmlDetailsFromText(pdfResult.text, responseUrl));
+    }
+
+    const extractedDetails = await extractPdfDetailsFromText(pdfResult.text, responseUrl, fallbackDetails.title);
+
+    if (!hasUsefulCitationDetails(extractedDetails)) {
+      const articleUrl = getArticleUrlFromPdfUrl(safeUrl);
+
+      if (articleUrl) {
+        const articleDetails = await scanUrlDetails(articleUrl);
+
+        if (hasUsefulCitationDetails(articleDetails)) {
+          return articleDetails;
+        }
+      }
+    }
+
+    return extractedDetails;
   } catch (error) {
     console.warn("[AutoCite] Could not read PDF metadata.", error);
     return fallbackDetails;
@@ -586,7 +1133,7 @@ async function extractPdfDetails(url, fallbackTitle = "") {
 async function scanUrlDetails(url) {
   const safeUrl = sanitizeUrl(url);
 
-  if (!safeUrl) {
+  if (!safeUrl || !isSecureWebUrl(safeUrl)) {
     return null;
   }
 
@@ -600,7 +1147,7 @@ async function scanUrlDetails(url) {
     });
 
     if (/application\/pdf/i.test(result.contentType)) {
-      return extractPdfDetails(safeUrl);
+      return extractPdfDetails(safeUrl, "", { forcePdf: true });
     }
 
     return extractHtmlDetailsFromText(result.text, safeUrl);
@@ -879,14 +1426,6 @@ async function handleActionClicked(tab) {
     return false;
   }
 
-  if (globalSidebarState === SIDEBAR_STATE_OPEN) {
-    if (await pingContentScript(tab.id)) {
-      return closeAutoCiteSidebar(tab);
-    }
-
-    return connectAutoCiteToTab(tab);
-  }
-
   return openAutoCiteSidebar(tab);
 }
 
@@ -897,6 +1436,16 @@ function isValidCopiedSource(value) {
     typeof value.copiedText === "string" &&
     value.sourceDetails &&
     typeof value.sourceDetails === "object"
+  );
+}
+
+function isExtensionPageRequest(sender) {
+  return Boolean(
+    sender &&
+    sender.id === chrome.runtime.id &&
+    !sender.tab &&
+    typeof sender.url === "string" &&
+    sender.url.startsWith(chrome.runtime.getURL(""))
   );
 }
 
@@ -915,6 +1464,8 @@ async function getActiveTabContext(tab = null, tabId = null) {
 
   const rawTabUrl = activeTab.url || "";
   const tabUrl = sanitizeUrl(rawTabUrl);
+  const isBlobPdf = /^blob:/i.test(rawTabUrl) || /^blob:/i.test(activeTab.pendingUrl || "");
+  const isLocalFile = /^file:/i.test(rawTabUrl);
   const looksLikeRestrictedPage = /^(chrome|edge|brave|vivaldi|opera|about):/i.test(rawTabUrl) ||
     /^https:\/\/chrome\.google\.com\/webstore/i.test(rawTabUrl) ||
     /^https:\/\/chromewebstore\.google\.com\//i.test(rawTabUrl);
@@ -924,6 +1475,9 @@ async function getActiveTabContext(tab = null, tabId = null) {
     tabId: activeTab.id,
     title: sanitizeText(activeTab.title || ""),
     url: tabUrl,
+    rawProtocol: (rawTabUrl.match(/^[a-z]+:/i) || [""])[0].toLowerCase(),
+    isBlobPdf,
+    isLocalFile,
     hostname: getWebsiteFromUrl(tabUrl),
     canAccess: isWebPage || mayNeedPermission,
     connected: false,
@@ -935,6 +1489,14 @@ async function getActiveTabContext(tab = null, tabId = null) {
   if (looksLikeRestrictedPage) {
     context.canAccess = false;
     context.reason = "AutoCite cannot access this browser page. You can still enter details manually.";
+    return context;
+  }
+
+  if (isBlobPdf || isLocalFile) {
+    context.canAccess = false;
+    context.reason = isBlobPdf
+      ? "This PDF is opened as a browser blob. Open the original PDF URL if available, or enter the source details manually."
+      : "AutoCite cannot read local file tabs directly. Enter the source details manually.";
     return context;
   }
 
@@ -1038,6 +1600,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CLOSE_AUTOCITE_SIDEBAR") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     const closeCurrentSidebar = async () => {
       const tab = await getMessageTab(message, sender);
       return closeAutoCiteSidebar(tab, { dismissed: message.dismissed === true });
@@ -1051,6 +1617,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "AUTOCITE_SIDEBAR_STATE_CHANGED") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     const updateCurrentSidebar = async () => {
       const tab = await getMessageTab(message, sender);
       const sidebarState = VALID_SIDEBAR_STATES.has(message.sidebarState) ? message.sidebarState : SIDEBAR_STATE_CLOSED;
@@ -1066,6 +1636,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "EXTRACT_PDF_DETAILS") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     extractPdfDetails(message.url, message.title).then((sourceDetails) => {
       sendResponse({ sourceDetails });
     });
@@ -1074,6 +1648,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SCAN_URL_DETAILS") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     scanUrlDetails(message.url).then((sourceDetails) => {
       sendResponse({ sourceDetails });
     });
@@ -1081,7 +1659,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "LOOKUP_ACADEMIC_DETAILS") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
+    lookupAcademicDetails(message.sourceDetails).then((sourceDetails) => {
+      sendResponse({ sourceDetails });
+    });
+
+    return true;
+  }
+
   if (message.type === "GET_ACTIVE_TAB_CONTEXT") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     getActiveTabContext(null, message.tabId).then((activeTabContext) => {
       sendResponse({ activeTabContext });
     });
@@ -1090,6 +1684,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "USE_ACTIVE_TAB") {
+    if (!isExtensionPageRequest(sender)) {
+      return;
+    }
+
     getActiveTab(message.tabId).then(async (tab) => {
       const connected = await connectAutoCiteToTab(tab);
       const activeTabContext = await getActiveTabContext(tab);

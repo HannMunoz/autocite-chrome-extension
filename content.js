@@ -421,8 +421,12 @@ function detectPublishedDate() {
     'meta[name="publishdate"]',
     'meta[name="publish-date"]',
     'meta[name="timestamp"]',
-    'meta[itemprop="datePublished"]'
-  ]) || getJsonLdObjects().map((object) => object.datePublished).find(Boolean) || getTextFromSelectors([
+    'meta[itemprop="datePublished"]',
+    'meta[itemprop="dateCreated"]',
+    'meta[itemprop="dateModified"]',
+    'meta[property="article:modified_time"]',
+    'meta[property="og:updated_time"]'
+  ]) || getJsonLdObjects().map((object) => object.datePublished || object.dateCreated || object.dateModified).find(Boolean) || getTextFromSelectors([
     'time[datetime]',
     ".date",
     ".published",
@@ -560,7 +564,7 @@ function saveCopiedSource(selectedText) {
   });
 }
 
-function openAutoCiteSidebar() {
+function toggleAutoCiteSidebar() {
   if (!canUseChromeRuntime()) {
     console.error("[AutoCite] Cannot open sidebar because the extension context is unavailable.");
     return;
@@ -569,12 +573,12 @@ function openAutoCiteSidebar() {
   chrome.runtime.sendMessage({ type: "TOGGLE_AUTOCITE_SIDEBAR" }, (response) => {
     try {
       if (chrome.runtime.lastError) {
-        console.error("[AutoCite] Sidebar open request failed.", chrome.runtime.lastError.message);
+        console.error("[AutoCite] Sidebar toggle request failed.", chrome.runtime.lastError.message);
         return;
       }
 
       if (!response || !response.opened) {
-        console.error("[AutoCite] Sidebar did not open.");
+        console.error("[AutoCite] Sidebar did not toggle.");
         return;
       }
     } catch (error) {
@@ -601,7 +605,7 @@ function createFloatingButton() {
   button.className = "autocite-injected-ui";
   button.type = "button";
   button.textContent = "Cite";
-  button.setAttribute("aria-label", "Open AutoCite");
+  button.setAttribute("aria-label", "Toggle AutoCite");
   button.setAttribute(AUTOCITE_UI_ATTRIBUTE, "floating-button");
   button.setAttribute(AUTOCITE_INSTANCE_ATTRIBUTE, AUTOCITE_INSTANCE_ID);
 
@@ -640,7 +644,7 @@ function createFloatingButton() {
     button.style.transform = "translateY(-1px)";
   });
 
-  button.addEventListener("click", openAutoCiteSidebar);
+  button.addEventListener("click", toggleAutoCiteSidebar);
 
   document.documentElement.appendChild(button);
 }
@@ -739,7 +743,7 @@ try {
       if (message.type === "GET_PAGE_DETAILS") {
         sendResponse({
           sourceDetails: getSourceDetails(),
-          selectedText: window.getSelection().toString() || latestSelectedText,
+          selectedText: latestSelectedText,
           pageContext: {
             title: document.title || "",
             url: window.location.href || "",
@@ -766,21 +770,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-document.addEventListener("mouseup", () => {
-  const selectedText = window.getSelection().toString().trim();
-
-  if (selectedText) {
-    latestSelectedText = selectedText;
-  }
-});
-
 document.addEventListener("copy", (event) => {
   if (!autociteCaptureEnabled) {
     return;
   }
 
   const clipboardText = event.clipboardData ? event.clipboardData.getData("text/plain").trim() : "";
-  const selectedText = (window.getSelection().toString() || clipboardText || latestSelectedText).trim();
+  const selectedText = (window.getSelection().toString() || clipboardText).trim();
 
   if (selectedText) {
     latestSelectedText = selectedText;

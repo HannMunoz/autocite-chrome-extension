@@ -248,6 +248,54 @@ function createLabeledInput(labelText, className, placeholder = "") {
   return label;
 }
 
+function updateContributorListCollapse(contributorsList) {
+  if (!contributorsList) {
+    return;
+  }
+
+  const cards = Array.from(contributorsList.querySelectorAll(".contributor-card"));
+  const authorCards = cards.filter((card) => card.querySelector(".contributor-role")?.value === "Author");
+  let toggleButton = contributorsList.querySelector(".contributors-toggle");
+
+  cards.forEach((card) => {
+    card.classList.remove("is-collapsed-author");
+    card.removeAttribute("aria-hidden");
+  });
+
+  if (authorCards.length <= 1) {
+    if (toggleButton) {
+      toggleButton.remove();
+    }
+
+    contributorsList.dataset.authorsExpanded = "false";
+    return;
+  }
+
+  if (!toggleButton) {
+    toggleButton = document.createElement("button");
+    toggleButton.className = "contributors-toggle";
+    toggleButton.type = "button";
+    toggleButton.addEventListener("click", () => {
+      contributorsList.dataset.authorsExpanded = contributorsList.dataset.authorsExpanded === "true" ? "false" : "true";
+      updateContributorListCollapse(contributorsList);
+    });
+  }
+
+  const expanded = contributorsList.dataset.authorsExpanded === "true";
+  const hiddenCount = authorCards.length - 1;
+
+  toggleButton.classList.toggle("is-expanded", expanded);
+  toggleButton.setAttribute("aria-expanded", String(expanded));
+  toggleButton.textContent = `${expanded ? "Hide" : "Show"} ${hiddenCount} more author${hiddenCount === 1 ? "" : "s"}`;
+
+  contributorsList.insertBefore(toggleButton, authorCards[1]);
+
+  authorCards.slice(1).forEach((card) => {
+    card.classList.toggle("is-collapsed-author", !expanded);
+    card.setAttribute("aria-hidden", String(!expanded));
+  });
+}
+
 function renderContributor(contributorsList, contributor = createEmptyContributor(), onChange = () => {}) {
   if (!contributorsList) {
     return;
@@ -306,10 +354,12 @@ function renderContributor(contributorsList, contributor = createEmptyContributo
     }
 
     onChange();
+    updateContributorListCollapse(contributorsList);
   });
 
   contributorsList.appendChild(card);
   updateContributorCardFields(card);
+  updateContributorListCollapse(contributorsList);
 }
 
 function setContributors(contributorsList, contributors, onChange = () => {}) {
@@ -318,8 +368,10 @@ function setContributors(contributorsList, contributors, onChange = () => {}) {
   }
 
   contributorsList.replaceChildren();
+  contributorsList.dataset.authorsExpanded = "false";
   const contributorList = Array.isArray(contributors) && contributors.length ? contributors : [createEmptyContributor()];
   contributorList.forEach((contributor) => renderContributor(contributorsList, contributor, onChange));
+  updateContributorListCollapse(contributorsList);
 }
 
 window.AutoCiteContributors = {
@@ -334,6 +386,7 @@ window.AutoCiteContributors = {
   formatMlaContributor,
   renderContributor,
   setContributors,
+  updateContributorListCollapse,
   updateContributorCardFields
 };
 })();

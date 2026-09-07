@@ -6,20 +6,23 @@ AutoCite is a Chromium browser extension that helps students create citations fr
 
 * Detects copied text after you open AutoCite on a tab
 * Lets users paste website links when copied webpage text cannot be detected
-* Detects DOI values from copied text, page metadata, scanned webpages, and PDFs
-* Generates citations for APA 7th edition, MLA 9th edition, and Chicago Author-Date style
+* Detects DOI values from copied text, page metadata, scanned webpages, and PDF URLs
+* Generates citations for APA 7th Edition, MLA 9th Edition, Chicago, Harvard, IEEE, Vancouver, AMA, and Turabian styles
 * Supports websites, PDFs, books, and journal articles
 * Generates full citation and in-text citation
 * Lets users copy text with an in-text citation
 * Saves citation history locally
+* Organizes saved citations by project, class, essay, topic, or assignment
 * Allows editing and deleting saved citations
-* Exports bibliographies in alphabetical order
+* Exports style-aware bibliographies with headings such as References, Works Cited, or Bibliography
+* Creates cleaner DOCX bibliography exports for Google Docs and Microsoft Word
+* Reads citation metadata, DOI values, and academic lookup results from website and PDF URLs
 * Uses local browser storage for privacy
 * Supports Google Chrome, Microsoft Edge, Brave, Opera, and other modern Chromium-based browsers
 
 ## Privacy
 
-AutoCite does not upload copied text, citations, or browsing data to any server. Citation data is stored locally in the user's browser. AutoCite may make limited metadata requests to the current active page only for citation generation. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
+AutoCite stores copied text, citations, and citation history locally in the user's browser. AutoCite may make limited metadata requests to the active/source page and may query Crossref with a DOI or title for academic citation lookup. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
 
 ## How to Install and Test
 
@@ -49,8 +52,11 @@ Run this checklist in Chrome, Edge, Brave, Opera, and any other target Chromium 
 * Connect button reads the current web tab, not the extension page.
 * Restricted browser pages such as `chrome://`, `edge://`, `brave://`, and `opera://` show the manual-entry message.
 * Highlighting and copying webpage text updates the Copied Text field.
-* Paste button behavior works, or shows the Ctrl+V fallback message when clipboard read access is blocked.
+* Pasted website links scan citation metadata when site access is granted.
 * Copy Full Citation, Copy Text + In-text Citation, Copy Bibliography, TXT export, and DOCX export all work.
+* Project creation, renaming, deletion, filtering, and project-specific export work.
+* Bibliography headings update when switching citation styles.
+* History edits preserve manual citation text until Regenerate Citation is clicked.
 * Citation history persists after closing and reopening the browser.
 
 ## Important Note

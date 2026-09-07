@@ -90,6 +90,66 @@ function urlsMatchForActiveTabScan(pastedUrl, activeTabUrl) {
   }
 }
 
+function getOriginPermissionPattern(url) {
+  try {
+    const parsedUrl = new URL(url);
+
+    if (parsedUrl.protocol !== "https:") {
+      return "";
+    }
+
+    return `${parsedUrl.origin}/*`;
+  } catch (error) {
+    return "";
+  }
+}
+
+function requestUrlScanPermission(url) {
+  const originPattern = getOriginPermissionPattern(url);
+
+  if (!originPattern || !chrome.permissions || !chrome.permissions.request) {
+    return Promise.resolve(true);
+  }
+
+  return getActiveTab().then((activeTab) => {
+    const activeUrl = Security.sanitizeUrl(activeTab && activeTab.url ? activeTab.url : "");
+
+    if (activeUrl && urlsMatchForActiveTabScan(url, activeUrl)) {
+      return true;
+    }
+
+    return new Promise((resolve) => {
+      chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+        if (chrome.runtime.lastError) {
+          resolve(false);
+          return;
+        }
+
+        resolve(Boolean(granted));
+      });
+    });
+  });
+}
+
+function releaseUrlScanPermission(url) {
+  const originPattern = getOriginPermissionPattern(url);
+
+  if (!originPattern || !chrome.permissions || !chrome.permissions.remove) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    chrome.permissions.remove({ origins: [originPattern] }, (removed) => {
+      if (chrome.runtime.lastError) {
+        resolve(false);
+        return;
+      }
+
+      resolve(Boolean(removed));
+    });
+  });
+}
+
 async function getActiveTab() {
   if (!canUseChromeTabs()) {
     return null;
@@ -123,8 +183,21 @@ async function scanUrlDetails(url) {
   const activeTab = await getActiveTab();
   const activeUrl = Security.sanitizeUrl(activeTab && activeTab.url ? activeTab.url : "");
 
-  if (!urlsMatchForActiveTabScan(safeUrl, activeUrl)) {
-    return null;
+  if (activeTab && activeTab.id && urlsMatchForActiveTabScan(safeUrl, activeUrl)) {
+    const activePageDetails = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(activeTab.id, { type: "GET_PAGE_DETAILS" }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.sourceDetails) {
+          resolve(null);
+          return;
+        }
+
+        resolve(Security.sanitizeSourceDetails(response.sourceDetails));
+      });
+    });
+
+    if (activePageDetails) {
+      return activePageDetails;
+    }
   }
 
   return new Promise((resolve) => {
@@ -134,6 +207,26 @@ async function scanUrlDetails(url) {
     }, (response) => {
       if (chrome.runtime.lastError || !response || !response.sourceDetails) {
         resolve(null);
+        return;
+      }
+
+      resolve(Security.sanitizeSourceDetails(response.sourceDetails));
+    });
+  });
+}
+
+function lookupAcademicDetails(details) {
+  if (!chrome.runtime || !chrome.runtime.sendMessage) {
+    return Promise.resolve(Security.sanitizeSourceDetails(details));
+  }
+
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      type: "LOOKUP_ACADEMIC_DETAILS",
+      sourceDetails: Security.sanitizeSourceDetails(details)
+    }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.sourceDetails) {
+        resolve(Security.sanitizeSourceDetails(details));
         return;
       }
 
@@ -240,9 +333,12 @@ async function getActivePageDetails(onSuccess, onFallback) {
 
 window.AutoCiteMetadata = {
   canUseChromeTabs,
+  requestUrlScanPermission,
+  releaseUrlScanPermission,
   sendMessageToActiveTab,
   getActivePageDetails,
   scanUrlDetails,
+  lookupAcademicDetails,
   getActiveTabContext,
   useActiveTab,
   getTargetTabId

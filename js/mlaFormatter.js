@@ -8,21 +8,25 @@ function generateMLA(source, helpers) {
   const website = source.website || "";
   const publisher = source.publisher || "";
   const date = source.publishedDate ? `${helpers.formatReadableDate(source.publishedDate)}, ` : "";
-  const url = source.url || "";
+  const url = helpers.normalizeDoiOrUrl(source.url);
   const titlePart = `"${title}."`;
   const websitePart = website ? ` ${website},` : "";
   const publisherPart = publisher && publisher !== website ? ` ${publisher},` : "";
-  const primaryAuthor = helpers.getPrimaryAuthor(source.contributors);
-  const organization = helpers.getOrganizationContributor(source.contributors);
-  const inTextName = primaryAuthor ? primaryAuthor.lastName : organization ? organization.organizationName : `"${helpers.getShortTitle(title)}"`;
 
   return {
     full: `${author}${titlePart}${websitePart}${publisherPart} ${date}${url}.`.replace(/\s+/g, " ").trim(),
-    inText: `(${inTextName})`
+    inText: getMlaInText(source, helpers)
   };
 }
 
 function getMlaInText(source, helpers) {
+  const primaryAuthor = helpers.getPrimaryAuthor(source.contributors);
+  const organization = helpers.getOrganizationContributor(source.contributors);
+
+  if (!primaryAuthor && !organization) {
+    return `("${helpers.getShortTitle(source.title)}")`;
+  }
+
   return `(${helpers.getGeneralInTextContributor(source, "mla")})`;
 }
 

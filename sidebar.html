@@ -39,25 +39,72 @@
         </section>
 
         <section class="panel">
-          <div class="panel-header--row">
+          <div class="panel-header">
             <div class="panel-header-text">
               <h2>Copied Text</h2>
-              <p class="panel-description">Highlight and copy webpage text, or paste a website link to scan its citation details.</p>
+              <p class="panel-description">Highlight and copy webpage text, or cite the current source automatically.</p>
             </div>
-            <div class="heading-actions copied-text-actions">
-              <button class="small-button secondary-button is-hidden" id="useActiveTabButton" type="button">Connect</button>
-              <button class="small-button soft-button" id="clearCopiedTextButton" type="button">Clear Text</button>
-            </div>
+          </div>
+          <div class="copied-text-actions">
+            <button class="secondary-button is-hidden" id="useActiveTabButton" type="button">Connect</button>
+            <button class="primary-button" id="citeSourceButton" type="button">Cite Source</button>
+            <button class="secondary-button" id="clearCopiedTextButton" type="button">Clear Text</button>
           </div>
           <textarea id="copiedText" placeholder="Copied text appears here. Paste website links here."></textarea>
         </section>
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Source Details</h2>
-            <p class="panel-description">Review and edit the detected source information.</p>
+            <h2>Citation</h2>
+            <p class="panel-description">Choose a style and copy or save your formatted citation.</p>
           </div>
-          <div class="field-grid">
+
+          <div class="citation-style-row">
+            <label for="citationStyle">Citation Style</label>
+            <div class="style-dropdown" id="citationStyleDropdown">
+              <input id="citationStyle" type="hidden" value="apa" />
+              <button class="style-dropdown-button" id="citationStyleButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="citationStyleSelected">APA 7th Edition</span>
+                <span class="style-dropdown-arrow" aria-hidden="true">&#9662;</span>
+              </button>
+              <div class="style-dropdown-menu" id="citationStyleMenu" role="listbox" tabindex="-1" aria-label="Citation styles"></div>
+            </div>
+          </div>
+
+          <p class="source-scan-status" id="sourceScanStatus" aria-live="polite"></p>
+          <div class="validation-warnings" id="validationWarnings" aria-live="polite"></div>
+
+          <label class="checkbox-label" for="manualOverride">
+            <input id="manualOverride" type="checkbox" />
+            Manual override
+          </label>
+
+          <div class="citation-outputs">
+            <label for="fullCitation">Full Citation</label>
+            <textarea id="fullCitation" placeholder="Your full citation will appear here…"></textarea>
+
+            <label for="inTextCitation">In-text Citation</label>
+            <input id="inTextCitation" type="text" placeholder="Your in-text citation will appear here…" />
+          </div>
+
+          <div class="button-grid">
+            <button class="secondary-button" id="copyFullButton" type="button">Copy Full Citation</button>
+            <button class="secondary-button" id="copyInTextButton" type="button">Copy Text + In-text Citation</button>
+            <button class="primary-button" id="saveCitationButton" type="button">Save Citation</button>
+          </div>
+        </section>
+
+        <section class="panel source-details-panel">
+          <div class="panel-header--row">
+            <div class="panel-header-text">
+              <h2>Source Details</h2>
+              <p class="panel-description">Review detected details only when you need to correct them.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="small-button secondary-button" id="toggleSourceDetailsButton" type="button" aria-expanded="false">Edit Source Details</button>
+            </div>
+          </div>
+          <div class="field-grid is-hidden" id="sourceDetailsFields">
             <label for="sourceType">Source Type</label>
             <select id="sourceType">
               <option value="website">Website</option>
@@ -123,45 +170,8 @@
               <label for="accessDate">Access Date</label>
               <input id="accessDate" type="date" />
             </div>
-          </div>
-        </section>
 
-        <section class="panel">
-          <div class="panel-header">
-            <h2>Citation</h2>
-            <p class="panel-description">Choose a style and copy or save your formatted citation.</p>
-          </div>
-
-          <div class="citation-style-row">
-            <label for="citationStyle">Citation Style</label>
-            <select id="citationStyle">
-              <option value="apa">APA 7th edition</option>
-              <option value="mla">MLA 9th edition</option>
-              <option value="chicago">Chicago Author-Date style</option>
-            </select>
-          </div>
-
-          <button class="primary-button" id="generateButton" type="button">Generate Citation</button>
-          <div class="validation-warnings" id="validationWarnings" aria-live="polite"></div>
-
-          <label class="checkbox-label" for="manualOverride">
-            <input id="manualOverride" type="checkbox" />
-            Manual override
-          </label>
-
-          <div class="citation-outputs">
-            <label for="fullCitation">Full Citation</label>
-            <textarea id="fullCitation" placeholder="Your full citation will appear here…"></textarea>
-
-            <label for="inTextCitation">In-text Citation</label>
-            <input id="inTextCitation" type="text" placeholder="Your in-text citation will appear here…" />
-          </div>
-
-          <div class="button-grid">
-            <button class="secondary-button" id="copyFullButton" type="button">Copy Full Citation</button>
-            <button class="secondary-button" id="copyInTextButton" type="button">Copy Text + In-text Citation</button>
-            <button class="primary-button" id="saveCitationButton" type="button">Save Citation</button>
-            <button class="soft-button" id="clearCitationButton" type="button">Clear</button>
+            <button class="primary-button source-details-save" id="saveSourceDetailsButton" type="button">Save Changes</button>
           </div>
         </section>
       </section>
@@ -173,21 +183,48 @@
             <p class="panel-description">Browse, search, and manage your saved citations.</p>
           </div>
 
-          <label for="historySearch">Search Citations</label>
-          <input id="historySearch" type="search" placeholder="Search title, author, URL, or citation" />
+          <div class="history-search-control">
+            <label for="historySearch">Search Citations</label>
+            <input id="historySearch" type="search" placeholder="Search title, author, URL, or citation" />
+          </div>
 
-          <label for="historySort">Sort Citations</label>
-          <select id="historySort">
+          <div class="history-toolbar">
+            <select class="is-hidden" id="projectFilter" aria-hidden="true" tabindex="-1"></select>
+            <details class="project-dropdown compact-dropdown" id="projectFilterMenu">
+              <summary class="compact-dropdown-button" id="projectFilterButton" aria-label="Folder filter">
+                <span id="projectFilterSelected">All Citations</span>
+              </summary>
+              <div class="compact-dropdown-menu" id="projectFilterOptions"></div>
+            </details>
+            <details class="folder-menu" id="folderMenu">
+              <summary aria-label="Folder options" title="Folder options">&hellip;</summary>
+              <div class="folder-menu-panel">
+                <button class="small-button secondary-button" id="newProjectButton" type="button">Create Folder</button>
+                <button class="small-button soft-button" id="renameProjectButton" type="button">Rename Folder</button>
+                <button class="small-button danger-button" id="deleteProjectButton" type="button">Delete Folder</button>
+              </div>
+            </details>
+            <button class="small-button soft-button sort-button" id="historySortButton" type="button">Newest</button>
+          </div>
+
+          <select class="is-hidden" id="historySort" aria-label="Sort citations">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
             <option value="az">A to Z</option>
             <option value="za">Z to A</option>
           </select>
 
-          <p class="selection-status" id="selectionStatus" aria-live="polite"></p>
-          <div class="button-grid history-actions is-hidden" id="historyActions">
+          <div class="history-actions is-hidden" id="historyActions">
+            <p class="selection-status" id="selectionStatus" aria-live="polite"></p>
             <button class="secondary-button" id="editSelectedButton" type="button">Edit Selected</button>
-            <button class="secondary-button" id="copySelectedButton" type="button">Copy Selected</button>
+            <div class="move-folder-control">
+              <select class="is-hidden" id="moveFolderSelect" aria-hidden="true" tabindex="-1"></select>
+              <details class="move-folder-menu" id="moveFolderMenu">
+                <summary id="moveSelectedButton">Move to Folder</summary>
+                <div class="move-folder-options" id="moveFolderOptions"></div>
+              </details>
+            </div>
+            <button class="secondary-button is-hidden" id="copySelectedButton" type="button">Copy Selected</button>
             <button class="danger-button" id="deleteSelectedButton" type="button">Delete Selected</button>
           </div>
 
@@ -202,22 +239,39 @@
       <section class="tab-panel" id="exportPanel">
         <section class="panel">
           <div class="panel-header">
-            <h2>Bibliography Preview</h2>
+            <h2 id="bibliographyHeading">Bibliography Preview</h2>
             <p class="panel-description">Your saved citations, sorted alphabetically and ready to export.</p>
           </div>
 
+          <label id="exportProjectFilterLabel">Export Project</label>
+          <select class="is-hidden" id="exportProjectFilter" aria-hidden="true" tabindex="-1"></select>
+          <details class="project-dropdown export-project-dropdown compact-dropdown" id="exportProjectFilterMenu">
+            <summary class="compact-dropdown-button" id="exportProjectFilterButton" aria-labelledby="exportProjectFilterLabel exportProjectFilterSelected">
+              <span id="exportProjectFilterSelected">All Citations</span>
+            </summary>
+            <div class="compact-dropdown-menu" id="exportProjectFilterOptions"></div>
+          </details>
           <p class="citation-count" id="bibliographyCount">Total Citations: 0</p>
-          <textarea id="bibliographyPreview" readonly aria-readonly="true" placeholder="Saved citations will appear here in alphabetical order…"></textarea>
+          <textarea class="is-hidden" id="bibliographyPreview" readonly aria-readonly="true"></textarea>
+          <div class="bibliography-preview" id="bibliographyPreviewDisplay" role="textbox" aria-readonly="true">
+            <p class="bibliography-preview-placeholder">Saved citations will appear here in alphabetical order…</p>
+          </div>
 
           <div class="button-grid">
             <button class="secondary-button" id="copyBibliographyButton" type="button">Copy Bibliography</button>
-            <button class="secondary-button" id="exportTxtButton" type="button">Export TXT</button>
-            <button class="primary-button" id="exportDocxButton" type="button">Export DOCX</button>
+            <details class="export-menu" id="exportMenu">
+              <summary class="primary-button" id="exportMenuButton">Export</summary>
+              <div class="export-menu-options">
+                <button type="button" id="exportTxtButton">Export TXT</button>
+                <button type="button" id="exportPdfButton">Export PDF</button>
+                <button type="button" id="exportDocxButton">Export DOCX</button>
+              </div>
+            </details>
           </div>
         </section>
       </section>
 
-      <p class="privacy-note">Your copied information, website links, and citations stay on your device and are not uploaded to any server.</p>
+      <p class="privacy-note">Your copied text and saved citations stay on your device.</p>
       <p class="toast-message" id="copyMessage" aria-live="polite"></p>
     </main>
 
@@ -228,6 +282,7 @@
     <script src="js/apaFormatter.js"></script>
     <script src="js/mlaFormatter.js"></script>
     <script src="js/chicagoFormatter.js"></script>
+    <script src="js/additionalFormatters.js"></script>
     <script src="js/citationGenerator.js"></script>
     <script src="js/metadataExtractor.js"></script>
     <script src="js/history.js"></script>

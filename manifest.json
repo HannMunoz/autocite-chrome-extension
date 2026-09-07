@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AutoCite: Free Citation Generator",
-  "version": "1.0.4",
+  "version": "1.0.9",
   "description": "Copy source info, organize the details, and draft citations without leaving the page.",
   "icons": {
     "48": "icons/icon48.png",
@@ -12,8 +12,13 @@
     "storage",
     "activeTab",
     "scripting",
-    "clipboardRead",
     "clipboardWrite"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "host_permissions": [
+    "https://api.crossref.org/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -22,7 +27,7 @@
     "default_path": "sidebar.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'none'"
   },
   "action": {
     "default_icon": {

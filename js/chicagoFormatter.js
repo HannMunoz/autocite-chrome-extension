@@ -3,26 +3,23 @@
 
 function generateChicago(source, helpers) {
   const authorText = helpers.formatChicagoContributorList(source);
-  const primaryAuthor = helpers.getPrimaryAuthor(source.contributors);
-  const organization = helpers.getOrganizationContributor(source.contributors);
   const author = authorText ? `${authorText}. ` : "";
   const title = source.title || "Untitled source";
   const website = source.website || "";
   const publisher = source.publisher && source.publisher !== website ? source.publisher : "";
   const year = helpers.getYear(source.publishedDate) || "n.d.";
   const publishedDate = helpers.formatReadableDate(source.publishedDate);
-  const url = source.url || "";
-  const authorForInText = primaryAuthor ? primaryAuthor.lastName : organization ? organization.organizationName : helpers.getShortTitle(title);
+  const url = helpers.normalizeDoiOrUrl(source.url);
 
   return {
     full: `${author}${year}. "${title}." ${website}${publisher ? `. ${publisher}` : ""}${publishedDate ? `. ${publishedDate}.` : "."} ${url}.`.replace(/\s+/g, " ").trim(),
-    inText: `(${authorForInText} ${year})`
+    inText: getChicagoInText(source, helpers)
   };
 }
 
 function getChicagoInText(source, helpers) {
   const year = helpers.getYear(source.publishedDate) || "n.d.";
-  return `(${helpers.getGeneralInTextContributor(source)} ${year})`;
+  return `(${helpers.getGeneralInTextContributor(source, "and")} ${year})`;
 }
 
 function generateChicagoPDF(source, helpers) {

@@ -53,10 +53,10 @@
 <body>
   <main>
     <h1>Privacy Policy for AutoCite: Free Citation Generator</h1>
-    <p class="updated"><strong>Last Updated:</strong> July 4, 2026</p>
+    <p class="updated"><strong>Last Updated:</strong> July 12, 2026</p>
 
     <p>
-      AutoCite: Free Citation Generator helps users create citations from copied, selected, pasted, or detected website and source information. This Privacy Policy explains what information the extension handles and how that information is used.
+      AutoCite: Free Citation Generator helps users create citations from copied, pasted, or detected website and source information. This Privacy Policy explains what information the extension handles and how that information is used.
     </p>
 
     <h2>Information the Extension Handles</h2>
@@ -64,7 +64,7 @@
       AutoCite may handle information that you choose to provide or that is needed to generate a citation, including:
     </p>
     <ul>
-      <li>Text you copy, select, or paste for citation-related use.</li>
+      <li>Text you copy from an activated webpage or paste for citation-related use.</li>
       <li>Website URLs, DOI values, source titles, author names, publisher names, publication dates, website names, journal details, page numbers, and similar citation metadata.</li>
       <li>Basic information from the active browser tab, such as the page title and URL, when you activate AutoCite for that tab.</li>
       <li>Citations, in-text citations, and bibliography entries that you choose to save in the extension.</li>
@@ -89,10 +89,13 @@
 
     <h2>Temporary Processing and Network Requests</h2>
     <p>
-      Some citation information is processed temporarily while you use the extension, such as copied text, selected website content, pasted source information, or metadata detected from the active page.
+      Some citation information is processed temporarily while you use the extension, such as copied text, pasted source information, or metadata detected from the active page.
     </p>
     <p>
-      AutoCite may make a limited request to a source page or PDF URL when needed to detect citation metadata from a URL you provide or from the active page you are citing. These requests are used only to retrieve citation-related metadata. The extension is designed to omit credentials such as cookies and to avoid sending a referrer for these metadata requests.
+      AutoCite may make a limited request to an HTTPS source page or HTTPS PDF URL when needed to detect citation metadata from a URL you provide or from the active page you are citing. If a pasted HTTPS URL is outside the active tab, Chrome may ask you to grant AutoCite access to that specific website so the extension can scan citation metadata. AutoCite requests that access only for the site being scanned and attempts to release the optional site permission after the scan. These requests are used only to retrieve citation-related metadata. The extension is designed to omit credentials such as cookies and to avoid sending a referrer for these metadata requests.
+    </p>
+    <p>
+      If AutoCite detects a DOI or likely academic title, it may query Crossref to improve citation metadata. AutoCite sends only the DOI or title needed for that lookup.
     </p>
     <p>
       AutoCite does not send copied text, saved citations, citation history, or bibliography content to a third-party analytics, advertising, or tracking service. AutoCite does not currently use a third-party citation-generation API.
@@ -101,6 +104,9 @@
     <h2>Sharing and Sale of Data</h2>
     <p>
       AutoCite does not sell user data. AutoCite does not share user data with third parties for advertising, marketing, unrelated analytics, creditworthiness, lending, or other non-core purposes.
+    </p>
+    <p>
+      AutoCite's use of information received from Chrome extension APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements.
     </p>
 
     <h2>Permissions Used by the Extension</h2>
@@ -112,13 +118,13 @@
       <li><strong>storage:</strong> Allows AutoCite to save citation history and extension state locally on your device.</li>
       <li><strong>activeTab:</strong> Allows AutoCite to access citation-related information from the tab you are currently using after you activate the extension.</li>
       <li><strong>scripting:</strong> Allows AutoCite to read citation metadata from the active webpage when needed for citation generation.</li>
-      <li><strong>clipboardRead:</strong> Allows AutoCite to read text from the clipboard when you use a paste or import feature that requires clipboard access.</li>
       <li><strong>clipboardWrite:</strong> Allows AutoCite to copy generated citations, in-text citations, or bibliography text to your clipboard when you request it.</li>
+      <li><strong>Optional website access:</strong> Allows AutoCite to request access to a specific pasted website URL when needed to scan citation metadata from that site.</li>
     </ul>
 
     <h2>Privacy and Security</h2>
     <p>
-      AutoCite limits its handling of information to what is needed for citation generation and related user-requested actions. Citation data is stored locally in Chrome extension storage, and the extension does not request broad access to all websites. Source information is sanitized where appropriate before being displayed or saved by the extension.
+      AutoCite limits its handling of information to what is needed for citation generation and related user-requested actions. Citation data is stored locally in Chrome extension storage, and the extension does not request broad access to all websites by default. Source information is sanitized where appropriate before being displayed or saved by the extension.
     </p>
     <p>
       No browser extension can guarantee absolute security. You should avoid pasting sensitive personal, financial, medical, or confidential information into AutoCite unless it is necessary for your own citation work.

@@ -12,7 +12,7 @@ function generateAPA(source, helpers) {
   const title = source.title || "Untitled source";
   const website = source.website && source.website !== author ? ` ${source.website}.` : "";
   const publisher = source.publisher && source.publisher !== source.website && source.publisher !== author ? ` ${source.publisher}.` : "";
-  const url = source.url || "";
+  const url = helpers.normalizeDoiOrUrl(source.url);
 
   return {
     full: `${getAuthorPart(author)} (${date}). ${title}.${website}${publisher} ${url}`.replace(/\s+/g, " ").trim(),

@@ -3,6 +3,9 @@
 
 window.AutoCiteState = {
   currentHistory: [],
+  projects: [],
+  selectedProjectId: "all",
+  exportProjectId: "all",
   selectedHistoryIndexes: new Set(),
   editingHistoryIndexes: new Set()
 };
