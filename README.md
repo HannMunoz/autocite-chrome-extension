@@ -1,6 +1,6 @@
 # AutoCite Chromium Extension
 
-AutoCite is a Chromium browser extension that helps students create citations from copied source text. It opens in the browser side panel when available, and falls back to an AutoCite popup window in Chromium-based browsers that do not expose the Side Panel API.
+AutoCite is a Chromium browser extension that helps students create citations from copied source text. It opens in the browser side panel when available, and falls back to an AutoCite popup window in Chromium-based browsers.
 
 ## Features
 
